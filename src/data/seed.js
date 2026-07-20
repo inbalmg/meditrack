@@ -41,6 +41,14 @@ export const patients = [
 // The signed-in patient for the mobile portal demo.
 export const currentPatientId = 'p1'
 
+// Staff accounts (managed from the Settings screen). roleId matches ROLES keys.
+export const seedStaff = [
+  { id: 'u1', name: 'אורית שקד', roleId: 'manager' },
+  { id: 'u2', name: 'רונית לוי', roleId: 'secretary' },
+  { id: 'u3', name: 'ד"ר מאיה אבני', roleId: 'therapist' },
+  { id: 'u4', name: 'ד"ר יונתן לוי', roleId: 'therapist' },
+]
+
 const VISIT_TYPES = [
   'בדיקה תקופתית',
   'מעקב / פולו-אפ',

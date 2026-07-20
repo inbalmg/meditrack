@@ -1,12 +1,15 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 import { addDays, set } from 'date-fns'
 import {
-  therapists,
+  therapists as seedTherapists,
   patients as seedPatients,
   currentPatientId,
   seedRequests,
   seedAppointments,
   seedTasks,
+  seedStaff,
+  VISIT_TYPES,
+  visitDuration,
 } from './seed.js'
 import { classifyRequest } from '../lib/aiClassifier.js'
 
@@ -32,6 +35,21 @@ export function DataProvider({ children }) {
   const [appointments, setAppointments] = useState(seedAppointments)
   const [tasks, setTasks] = useState(seedTasks)
   const [patients, setPatients] = useState(seedPatients)
+  const [therapists, setTherapists] = useState(seedTherapists)
+  const [staff, setStaff] = useState(seedStaff)
+
+  // Operational settings, editable from the Settings screen.
+  const [settings, setSettings] = useState({
+    remindersEnabled: true,
+    reminderHours: 24,
+    autoNoShow: true,
+    noShowMinutes: 15,
+    followUpOnNoShow: true,
+  })
+  // Appointment length per visit type (drives the scheduling slot grid).
+  const [visitDurations, setVisitDurations] = useState(() =>
+    Object.fromEntries(VISIT_TYPES.map((v) => [v, visitDuration(v)])),
+  )
 
   // --- Lookups ---
   const patientById = useMemo(
@@ -40,8 +58,34 @@ export function DataProvider({ children }) {
   )
   const therapistById = useMemo(
     () => Object.fromEntries(therapists.map((t) => [t.id, t])),
-    [],
+    [therapists],
   )
+
+  // --- Settings actions ---
+
+  function updateSettings(patch) {
+    setSettings((prev) => ({ ...prev, ...patch }))
+  }
+
+  function updateTherapist(id, patch) {
+    setTherapists((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }
+
+  function updateVisitDuration(type, minutes) {
+    setVisitDurations((prev) => ({ ...prev, [type]: minutes }))
+  }
+
+  function addStaff({ name, roleId }) {
+    const member = { id: nextId('u'), name, roleId }
+    setStaff((prev) => [...prev, member])
+    return member
+  }
+  function updateStaff(id, patch) {
+    setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  }
+  function removeStaff(id) {
+    setStaff((prev) => prev.filter((s) => s.id !== id))
+  }
 
   // --- Actions ---
 
@@ -104,8 +148,8 @@ export function DataProvider({ children }) {
     setAppointments((prev) =>
       prev.map((a) => (a.id === apptId ? { ...a, status } : a)),
     )
-    // Automation: a no-show spawns a follow-up task.
-    if (status === 'לא הגיע') {
+    // Automation: a no-show spawns a follow-up task (can be turned off in Settings).
+    if (status === 'לא הגיע' && settings.followUpOnNoShow) {
       const appt = appointments.find((a) => a.id === apptId)
       if (appt) {
         setTasks((prev) => [
@@ -152,8 +196,17 @@ export function DataProvider({ children }) {
     requests,
     appointments,
     tasks,
+    staff,
+    settings,
+    visitDurations,
     patientById,
     therapistById,
+    updateSettings,
+    updateTherapist,
+    updateVisitDuration,
+    addStaff,
+    updateStaff,
+    removeStaff,
     addPatient,
     submitRequest,
     approveRequest,

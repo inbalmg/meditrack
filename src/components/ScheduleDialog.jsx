@@ -6,7 +6,6 @@ import { Card, Badge, Button, Avatar } from './ui.jsx'
 import { clsx } from './clsx.js'
 import { dayName, shortDate, hhmm } from '../lib/format.js'
 import {
-  visitDuration,
   PREFERRED_WINDOWS,
   WORK_START_HOUR,
   WORK_END_HOUR,
@@ -32,10 +31,11 @@ function upcomingWorkingDays(n = 6) {
 // can't be double-booked; the patient's preferred window is highlighted, and the
 // default date follows the AI urgency.
 export default function ScheduleDialog({ request, onConfirm, onClose }) {
-  const { appointments, therapists, patientById } = useData()
+  const { appointments, therapists, patientById, visitDurations } = useData()
   const patient = patientById[request.patientId]
   const ai = request.ai
-  const duration = visitDuration(ai.visitType)
+  // Appointment length comes from Settings (per visit type).
+  const duration = visitDurations[ai.visitType] ?? 20
   const [wFrom, wTo] = PREFERRED_WINDOWS[request.preferredTime] || PREFERRED_WINDOWS['גמיש']
 
   const workingDays = useMemo(() => upcomingWorkingDays(6), [])

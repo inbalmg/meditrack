@@ -9,6 +9,7 @@ export const ROLES = {
     home: '/clinic',
     canReports: false,
     canApprove: true,
+    canSettings: true,
     scopeAllTherapists: true,
   },
   therapist: {
@@ -28,6 +29,7 @@ export const ROLES = {
     home: '/clinic',
     canReports: true,
     canApprove: true,
+    canSettings: true,
     scopeAllTherapists: true,
   },
   patient: {

@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ListChecks,
   BarChart3,
+  Settings,
   LogOut,
   Plus,
   Bell,
@@ -26,6 +27,7 @@ export default function ClinicLayout() {
     { to: '/clinic/calendar', icon: CalendarDays, label: 'יומן הקליניקה' },
     { to: '/clinic/tasks', icon: ListChecks, label: 'לוח משימות', badge: openTasks },
     ...(role.canReports ? [{ to: '/clinic/reports', icon: BarChart3, label: 'דוחות ואנליטיקה' }] : []),
+    ...(role.canSettings ? [{ to: '/clinic/settings', icon: Settings, label: 'הגדרות' }] : []),
   ]
 
   function handleLogout() {

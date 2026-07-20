@@ -9,6 +9,7 @@ import Dashboard from './pages/clinic/Dashboard.jsx'
 import Calendar from './pages/clinic/Calendar.jsx'
 import TasksBoard from './pages/clinic/TasksBoard.jsx'
 import Reports from './pages/clinic/Reports.jsx'
+import Settings from './pages/clinic/Settings.jsx'
 
 import DoctorDay from './pages/doctor/DoctorDay.jsx'
 import DoctorCalendar from './pages/doctor/DoctorCalendar.jsx'
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="calendar" element={<Calendar />} />
         <Route path="tasks" element={<TasksBoard />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
 
       <Route

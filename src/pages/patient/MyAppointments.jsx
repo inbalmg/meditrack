@@ -13,7 +13,7 @@ const REQ_STATUS = {
 }
 
 export default function MyAppointments() {
-  const { requests, appointments, currentPatientId, therapistById } = useData()
+  const { requests, appointments, currentPatientId, therapistById, settings } = useData()
 
   const myRequests = requests.filter((r) => r.patientId === currentPatientId)
   const lastRequest = myRequests[0] // newest first
@@ -87,18 +87,20 @@ export default function MyAppointments() {
         )}
       </div>
 
-      {/* Automated reminder note */}
-      <Card className="p-4 bg-teal-50/60 ring-teal-100">
-        <div className="flex items-start gap-3">
-          <span className="grid place-items-center h-9 w-9 rounded-xl bg-teal-100 text-teal-600 shrink-0"><Bell size={18} /></span>
-          <div>
-            <p className="text-sm font-medium text-slate-700">תזכורות אוטומטיות פעילות</p>
-            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-              נשלח לך תזכורת בוואטסאפ/SMS 24 שעות לפני כל תור, כדי שלא תפספס/י.
-            </p>
+      {/* Automated reminder note — configurable in the clinic Settings screen */}
+      {settings.remindersEnabled && (
+        <Card className="p-4 bg-teal-50/60 ring-teal-100">
+          <div className="flex items-start gap-3">
+            <span className="grid place-items-center h-9 w-9 rounded-xl bg-teal-100 text-teal-600 shrink-0"><Bell size={18} /></span>
+            <div>
+              <p className="text-sm font-medium text-slate-700">תזכורות אוטומטיות פעילות</p>
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                נשלח לך תזכורת בוואטסאפ/SMS {settings.reminderHours} שעות לפני כל תור, כדי שלא תפספס/י.
+              </p>
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <Link to="/patient/new" className="block">
         <Button size="lg" className="w-full"><FilePlus2 size={18} /> בקשת תור חדש</Button>

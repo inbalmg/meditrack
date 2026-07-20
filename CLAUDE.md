@@ -61,7 +61,7 @@ src/
     PatientLayout.jsx      מסגרת מובייל לפורטל המטופל
   pages/
     Login.jsx              שתי כניסות (קליניקה / מטופל) + בחירת תפקיד
-    clinic/  Dashboard · Calendar · TasksBoard · Reports
+    clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
     doctor/  DoctorDay · DoctorCalendar · VisitCard
     patient/ NewRequest · MyAppointments
 ```
@@ -70,7 +70,7 @@ src/
 
 | תפקיד | אזור | הרשאות עיקריות |
 |-------|------|----------------|
-| מזכירות (`secretary`) | `/clinic` | צינור הבקשות, יומן, משימות · אישור/דחייה · **ללא דוחות** |
+| מזכירות (`secretary`) | `/clinic` | צינור הבקשות, יומן, משימות · אישור/דחייה · הגדרות · **ללא דוחות** |
 | מנהל/ת (`manager`) | `/clinic` | הכל + דוחות ואנליטיקה |
 | רופא/מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן והמשימות שלו (`therapistId: t1`) |
 | מטופל (`patient`) | `/patient` | בקשת תור + מעקב (מובייל) |
@@ -101,6 +101,11 @@ src/
 - **סימון הגעה/סיום/אי-הגעה** (`AppointmentActions`): המזכירה/מנהל מסמנים check-in ו-check-out
   מרשימת "תורי היום" (דשבורד) ומלחיצה על תור ביומן (מודל). לפי האפיון אי-הגעה אוטומטית
   אחרי X דק' — כאן ידני לדמו (עם tooltip מסביר). הרופא בצפייה בלבד (הרכיב מוגן ב-`role.canApprove`).
+- **הגדרות** (`pages/clinic/Settings.jsx`, מזכירות+מנהל/ת דרך `role.canSettings`): כל ההגדרות
+  יושבות ב-`store` ו**משפיעות בפועל** — `reminderHours`/`remindersEnabled` → טקסט התזכורת
+  בפורטל המטופל; `noShowMinutes` → ה-tooltip של "לא הגיע"; `followUpOnNoShow` → האם
+  `setAppointmentStatus` יוצר משימת פולו-אפ; `visitDurations` → אורך המשבצת ב-`ScheduleDialog`;
+  עריכת מטפל (שם/צבע) → מתעדכנת חי ביומן ובכל האפליקציה. בנוסף: ניהול משתמשי צוות (`staff`).
 - **קביעת תור באישור בקשה** (`ScheduleDialog`): לחיצה על "אישור וקביעת תור" פותחת בורר —
   מטפל (ברירת מחדל = ניתוב ה-AI), תאריך (מוצע לפי דחיפות, מדלג על ימים ללא זמינות),
   ומשבצת שעה מרשת 09:00–18:00 המחושבת חי מ-`appointments`: משבצות תפוסות חסומות (מונע

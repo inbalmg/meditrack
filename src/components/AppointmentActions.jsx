@@ -15,7 +15,7 @@ const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green',
 // `compact` renders icon-only buttons (with tooltips) so the controls fit in
 // tight spots like the dashboard "today" list without squeezing the name.
 export default function AppointmentActions({ appt, size = 'sm', compact = false, className = '' }) {
-  const { setAppointmentStatus } = useData()
+  const { setAppointmentStatus, settings } = useData()
   const { role } = useSession()
 
   // Terminal states, or no permission → just show the status.
@@ -37,7 +37,9 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
   }
 
   // status === 'קבוע'
-  const noShowTitle = 'במערכת האמיתית מסומן אוטומטית אחרי X דקות; כאן ידני לצורך ההדגמה'
+  const noShowTitle = settings.autoNoShow
+    ? `במערכת האמיתית מסומן אוטומטית אחרי ${settings.noShowMinutes} דקות; כאן ידני לצורך ההדגמה`
+    : 'סימון אי-הגעה אוטומטי כבוי בהגדרות — סימון ידני בלבד'
   return (
     <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
       <Button variant="soft" size={size} className={compact ? 'px-2' : ''} title="הגיע"
