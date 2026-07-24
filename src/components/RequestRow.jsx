@@ -43,6 +43,9 @@ export default function RequestRow({ request, canApprove = true }) {
         {/* Patient */}
         <div className={clsx(REQ_COLS.patient, 'min-w-0')}>
           <span className="font-bold text-slate-800 truncate block">{patient.name}</span>
+          {request.source && request.source !== 'פורטל' && (
+            <Badge tone={request.source === 'טלפון' ? 'blue' : 'red'}>{request.source}</Badge>
+          )}
         </div>
         {/* Visit type */}
         <div className={clsx(REQ_COLS.visitType, 'text-sm text-teal-700 truncate')}>{ai.visitType}</div>

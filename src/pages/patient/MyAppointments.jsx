@@ -13,7 +13,7 @@ const REQ_STATUS = {
 }
 
 export default function MyAppointments() {
-  const { requests, appointments, currentPatientId, therapistById, settings } = useData()
+  const { requests, appointments, currentPatientId, therapistById, settings, cancelAppointment } = useData()
 
   const myRequests = requests.filter((r) => r.patientId === currentPatientId)
   const lastRequest = myRequests[0] // newest first
@@ -79,6 +79,15 @@ export default function MyAppointments() {
                     <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
                       <MapPin size={13} /> מרפאת שקד · רח׳ הרצל 12, מרכז
                     </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+                      <Link to="/patient/new" className="flex-1">
+                        <Button variant="soft" size="sm" className="w-full">שינוי מועד</Button>
+                      </Link>
+                      <Button variant="ghost" size="sm" onClick={() => cancelAppointment(a.id)}>
+                        <X size={14} /> ביטול תור
+                      </Button>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-400 text-center">ניתן לבטל עד 24 שעות לפני התור</p>
                   </div>
                 </Card>
               )

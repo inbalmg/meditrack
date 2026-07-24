@@ -1,34 +1,39 @@
-// AI classification of an incoming appointment request.
+// AI classification for the "not sure?" intake path of a TREATMENT clinic.
 //
-// In production this call would hit an LLM (e.g. Claude) with the patient's
-// free-text description and return structured JSON. For this demo it runs a
-// deterministic, rule-based classifier with the SAME input/output shape, so the
-// UI is identical and the network call can be dropped in later without changes.
+// The patient who doesn't know which treatment they need writes a free-text
+// description; this maps it to a suggested treatment + provider, and raises an
+// urgency safety-net flag (a "routine" that actually sounds urgent → route to the
+// clinic instead of silent self-booking).
 //
-// Output: { urgency, urgencyScore, visitType, routedTo, tags, rationale }
+// In production this call would hit an LLM (e.g. Claude) with the same
+// input/output shape, so the UI is identical and the network call drops in later.
+//
+// Output: { urgency, urgencyScore, treatmentId, visitType, routedTo, tags,
+//           rationale, urgentFlag }
 
+import { treatments } from '../data/seed.js'
+
+const byId = Object.fromEntries(treatments.map((t) => [t.id, t]))
+const firstProvider = (treatmentId) => byId[treatmentId]?.therapistIds?.[0] ?? 't1'
+
+// Symptoms that should NOT be self-booked as routine — flag for the clinic.
 const URGENT_TERMS = [
   'דחוף', 'חירום', 'כאב חזק', 'כאבים חזקים', 'חום גבוה', 'קוצר נשימה',
-  'דימום', 'התעלפות', 'לא נרגע', 'מחמיר', 'פתאומי', 'נשימה', 'אלרגי',
+  'דימום', 'התעלפות', 'לא נרגע', 'מחמיר', 'פתאומי', 'נשימה', 'חבלה', 'נפילה',
 ]
 const SOON_TERMS = [
-  'כאב', 'כואב', 'זיהום', 'דלקת', 'פריחה', 'שיעול', 'חום', 'סחרחורת',
-  'החמרה', 'לא עובר', 'כמה ימים', 'מודאג', 'מודאגת',
+  'כאב', 'כואב', 'דלקת', 'נפיחות', 'מגביל', 'לא עובר', 'כמה ימים',
+  'מחמיר', 'מקרין', 'תפוס', 'מודאג', 'מודאגת',
 ]
 
-const VISIT_RULES = [
-  { type: 'בדיקה דחופה', match: ['כאב חזק', 'חום גבוה', 'דחוף', 'דימום', 'קוצר נשימה'] },
-  { type: 'מעקב / פולו-אפ', match: ['מעקב', 'תוצאות', 'בדיקות דם', 'המשך טיפול', 'פולו', 'חוזר'] },
-  { type: 'חידוש מרשם', match: ['מרשם', 'תרופה', 'תרופות', 'חידוש'] },
-  { type: 'ייעוץ', match: ['ייעוץ', 'שאלה', 'להתייעץ', 'חוות דעת'] },
-  { type: 'בדיקה תקופתית', match: ['בדיקה שנתית', 'תקופתית', 'שגרתית', 'ביקורת', 'רוטינה'] },
-]
-
-// Keywords that hint which specialty/therapist should handle it.
-const ROUTING_RULES = [
-  { therapistId: 't2', match: ['ילד', 'תינוק', 'ילדה', 'בן שנתיים', 'פעוט'] }, // ד"ר לוי — ילדים
-  { therapistId: 't3', match: ['עור', 'פריחה', 'שומה', 'אקנה', 'גרד'] }, // ד"ר כהן — עור
-  { therapistId: 't1', match: [] }, // ד"ר אבני — רפואת משפחה (ברירת מחדל)
+// Map free-text → a suggested treatment (id). First match wins; falls back below.
+const TREATMENT_RULES = [
+  { id: 'tr1', match: ['גב', 'ברך', 'כתף', 'פציעה', 'ספורט', 'אימון', 'שיקום', 'הרמת', 'נקע', 'שריר'] }, // פיזיו — הערכה ראשונית
+  { id: 'tr2', match: ['המשך', 'סדרה', 'טיפול נוסף', 'פיזיותרפיה', 'תרגילים'] }, // פיזיו — טיפול המשך
+  { id: 'tr3', match: ['דיקור', 'מחט', 'כאב ראש', 'מיגרנה', 'עישון', 'שינה'] }, // דיקור סיני
+  { id: 'tr4', match: ['רפואה סינית', 'צמחים', 'עיכול', 'אנרגיה', 'הורמונלי'] }, // ייעוץ רפואה סינית
+  { id: 'tr5', match: ['עיסוי', 'מתח', 'צוואר', 'גב עליון', 'נוקשות', 'עומס'] }, // עיסוי רפואי
+  { id: 'tr6', match: ['רפלקסולוגיה', 'הרפיה', 'לחץ', 'רגליים', 'כללי', 'רוגע'] }, // רפלקסולוגיה
 ]
 
 function countHits(text, terms) {
@@ -39,7 +44,7 @@ function countHits(text, terms) {
 export function classifyRequest({ description = '', preferredTherapistId = null, visitTypeHint = null } = {}) {
   const text = description.trim()
 
-  // --- Urgency ---
+  // --- Urgency (safety-net flag) ---
   const urgentHits = countHits(text, URGENT_TERMS)
   const soonHits = countHits(text, SOON_TERMS)
   let urgency = 'רגיל'
@@ -51,47 +56,51 @@ export function classifyRequest({ description = '', preferredTherapistId = null,
     urgency = 'בהקדם'
     urgencyScore = Math.min(0.7, 0.4 + soonHits * 0.1)
   }
+  const urgentFlag = urgency === 'דחוף'
 
-  // --- Visit type: the patient's own choice wins; AI only fills a gap ---
-  let visitType = visitTypeHint || null
-  if (!visitType) {
-    for (const rule of VISIT_RULES) {
+  // --- Suggested treatment: patient's own choice wins; AI only fills a gap ---
+  let treatmentId = null
+  if (visitTypeHint) {
+    const t = treatments.find((tr) => tr.name === visitTypeHint)
+    if (t) treatmentId = t.id
+  }
+  if (!treatmentId) {
+    for (const rule of TREATMENT_RULES) {
       if (countHits(text, rule.match) > 0) {
-        visitType = rule.type
+        treatmentId = rule.id
         break
       }
     }
   }
-  if (!visitType) visitType = urgency === 'דחוף' ? 'בדיקה דחופה' : 'ייעוץ'
+  if (!treatmentId) treatmentId = 'tr1' // sensible default: physio assessment
+  const treatment = byId[treatmentId]
 
-  // --- Routing: patient's preferred therapist wins; AI only fills a gap ---
+  // --- Routing: patient's preferred provider wins; else the treatment's provider ---
   let routedTo = preferredTherapistId || null
-  if (!routedTo) {
-    for (const rule of ROUTING_RULES) {
-      if (rule.match.length && countHits(text, rule.match) > 0) {
-        routedTo = rule.therapistId
-        break
-      }
-    }
-  }
-  if (!routedTo) routedTo = 't1'
+  if (!routedTo) routedTo = firstProvider(treatmentId)
 
   // --- Tags (surfaced on cards) ---
   const tags = []
-  if (urgency === 'דחוף') tags.push('דחוף')
+  if (urgency === 'דחוף') tags.push('דחוף — לבדיקת המרפאה')
   if (soonHits > 0 && urgency !== 'דחוף') tags.push('רגיש לזמן')
-  if (countHits(text, ['ילד', 'תינוק', 'פעוט'])) tags.push('ילדים')
-  if (countHits(text, ['מרשם', 'תרופה'])) tags.push('מרשם')
+  if (countHits(text, ['גב', 'ברך', 'פציעה', 'ספורט'])) tags.push('אורתופדי')
+  if (countHits(text, ['מתח', 'הרפיה', 'לחץ'])) tags.push('הרפיה')
   if (tags.length === 0) tags.push('שגרתי')
 
-  const rationale =
-    urgency === 'דחוף'
-      ? 'זוהו ביטויים המעידים על מצב דחוף — מומלץ תיאום מהיר.'
-      : urgency === 'בהקדם'
-        ? 'זוהו סימני אי-נוחות — עדיף לתאם בימים הקרובים.'
-        : 'לא זוהו סימני דחיפות — ניתן לתאם לפי זמינות רגילה.'
+  const rationale = urgentFlag
+    ? 'זוהו ביטויים שעשויים להעיד על מצב שדורש בדיקה — הופנה למרפאה לתיאום, במקום הזמנה עצמית.'
+    : `לפי התיאור, הטיפול המתאים ביותר הוא "${treatment.name}". ניתן לאשר ולהציע מועד.`
 
-  return { urgency, urgencyScore, visitType, routedTo, tags, rationale }
+  return {
+    urgency,
+    urgencyScore,
+    urgentFlag,
+    treatmentId,
+    visitType: treatment.name, // denormalized (backward compat)
+    routedTo,
+    tags,
+    rationale,
+  }
 }
 
 export const URGENCY_STYLES = {

@@ -2,14 +2,13 @@ import { createContext, useContext, useMemo, useState } from 'react'
 import { addDays, set } from 'date-fns'
 import {
   therapists as seedTherapists,
+  treatments as seedTreatments,
   patients as seedPatients,
   currentPatientId,
   seedRequests,
   seedAppointments,
   seedTasks,
   seedStaff,
-  VISIT_TYPES,
-  visitDuration,
 } from './seed.js'
 import { classifyRequest } from '../lib/aiClassifier.js'
 
@@ -18,7 +17,7 @@ const DataContext = createContext(null)
 let idCounter = 1000
 const nextId = (prefix) => `${prefix}${++idCounter}`
 
-// Attach the AI classification to every request once, up front.
+// Attach the AI classification to every "not sure?" request once, up front.
 function withClassification(req) {
   return {
     ...req,
@@ -36,6 +35,7 @@ export function DataProvider({ children }) {
   const [tasks, setTasks] = useState(seedTasks)
   const [patients, setPatients] = useState(seedPatients)
   const [therapists, setTherapists] = useState(seedTherapists)
+  const [treatments, setTreatments] = useState(seedTreatments)
   const [staff, setStaff] = useState(seedStaff)
 
   // Operational settings, editable from the Settings screen.
@@ -46,10 +46,6 @@ export function DataProvider({ children }) {
     noShowMinutes: 15,
     followUpOnNoShow: true,
   })
-  // Appointment length per visit type (drives the scheduling slot grid).
-  const [visitDurations, setVisitDurations] = useState(() =>
-    Object.fromEntries(VISIT_TYPES.map((v) => [v, visitDuration(v)])),
-  )
 
   // --- Lookups ---
   const patientById = useMemo(
@@ -60,6 +56,20 @@ export function DataProvider({ children }) {
     () => Object.fromEntries(therapists.map((t) => [t.id, t])),
     [therapists],
   )
+  const treatmentById = useMemo(
+    () => Object.fromEntries(treatments.map((t) => [t.id, t])),
+    [treatments],
+  )
+  // Treatment length per treatment NAME — kept for the scheduling slot grid and
+  // any display-only screen that still reads `visitDurations[appt.visitType]`.
+  const visitDurations = useMemo(
+    () => Object.fromEntries(treatments.map((t) => [t.name, t.durationMin])),
+    [treatments],
+  )
+  // Which treatments a given provider offers (drives the patient booking flow).
+  function treatmentsForTherapist(therapistId) {
+    return treatments.filter((t) => t.therapistIds.includes(therapistId))
+  }
 
   // --- Settings actions ---
 
@@ -71,8 +81,17 @@ export function DataProvider({ children }) {
     setTherapists((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }
 
-  function updateVisitDuration(type, minutes) {
-    setVisitDurations((prev) => ({ ...prev, [type]: minutes }))
+  // Treatment management (Settings): name, duration, provider assignment.
+  function addTreatment({ name, durationMin, therapistIds }) {
+    const tr = { id: nextId('tr'), name, durationMin, therapistIds: therapistIds ?? [] }
+    setTreatments((prev) => [...prev, tr])
+    return tr
+  }
+  function updateTreatment(id, patch) {
+    setTreatments((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }
+  function removeTreatment(id) {
+    setTreatments((prev) => prev.filter((t) => t.id !== id))
   }
 
   function addStaff({ name, roleId }) {
@@ -89,16 +108,43 @@ export function DataProvider({ children }) {
 
   // --- Actions ---
 
-  // Register a new patient (e.g. a first-time caller). Returns the created
-  // patient so the caller can use its id immediately.
+  // Register a new patient (e.g. a first-time caller). Returns the created patient.
   function addPatient({ name, phone, age = null, gender = null }) {
     const patient = { id: nextId('p'), name, phone, age, gender }
     setPatients((prev) => [...prev, patient])
     return patient
   }
 
-  // Patient submits a new request → AI classifies it → lands in the pipeline.
-  function submitRequest({ patientId, description, preferredTherapistId, visitTypeHint, preferredTime }) {
+  // PRIMARY path — the patient self-books: provider → treatment → slot. Creates a
+  // confirmed appointment directly (no secretary approval); the reserved length
+  // comes from the treatment definition.
+  function bookAppointment({ patientId, therapistId, treatmentId, start, reason }) {
+    const tr = treatmentById[treatmentId]
+    if (!tr) return null
+    const appt = {
+      id: nextId('a'),
+      patientId,
+      therapistId,
+      treatmentId,
+      start,
+      durationMin: tr.durationMin,
+      visitType: tr.name,
+      status: 'קבוע',
+      reason: reason || tr.name,
+      source: 'הזמנה עצמית',
+    }
+    setAppointments((prev) => [...prev, appt])
+    return appt
+  }
+
+  // Patient cancels one of their own upcoming appointments (frees the slot).
+  function cancelAppointment(apptId) {
+    setAppointments((prev) => prev.filter((a) => a.id !== apptId))
+  }
+
+  // SECONDARY path — "not sure?" free-text request → AI classifies → lands in the
+  // clinic pipeline for a person to confirm/route.
+  function submitRequest({ patientId, description, preferredTherapistId, visitTypeHint, preferredTime, source }) {
     const base = {
       id: nextId('r'),
       patientId,
@@ -107,6 +153,7 @@ export function DataProvider({ children }) {
       preferredTherapistId: preferredTherapistId || null,
       visitTypeHint: visitTypeHint || null,
       preferredTime: preferredTime || 'גמיש',
+      source: source || 'פורטל',
       status: 'ממתין',
     }
     const req = withClassification(base)
@@ -114,22 +161,24 @@ export function DataProvider({ children }) {
     return req
   }
 
-  // Secretary/manager approves a request → creates a scheduled appointment.
+  // Secretary/therapist confirms an AI-path request → creates a scheduled appointment.
   function approveRequest(requestId, slot) {
     const req = requests.find((r) => r.id === requestId)
     if (!req) return
     setRequests((prev) =>
       prev.map((r) => (r.id === requestId ? { ...r, status: 'אושר' } : r)),
     )
-    // Default slot: tomorrow 09:00 with the AI-routed therapist.
     const start = slot?.start ?? set(addDays(new Date(), 1), { hours: 9, minutes: 0, seconds: 0, milliseconds: 0 })
+    const treatmentId = slot?.treatmentId ?? req.ai.treatmentId ?? null
+    const tr = treatmentId ? treatmentById[treatmentId] : null
     const appt = {
       id: nextId('a'),
       patientId: req.patientId,
       therapistId: slot?.therapistId ?? req.ai.routedTo,
+      treatmentId,
       start,
-      durationMin: slot?.durationMin ?? 20,
-      visitType: req.ai.visitType,
+      durationMin: slot?.durationMin ?? tr?.durationMin ?? 30,
+      visitType: tr?.name ?? req.ai.visitType,
       status: 'קבוע',
       reason: req.description,
     }
@@ -143,7 +192,7 @@ export function DataProvider({ children }) {
     )
   }
 
-  // Secretary marks arrival / check-out from the calendar.
+  // Provider/secretary marks arrival / check-out from the calendar.
   function setAppointmentStatus(apptId, status) {
     setAppointments((prev) =>
       prev.map((a) => (a.id === apptId ? { ...a, status } : a)),
@@ -191,6 +240,7 @@ export function DataProvider({ children }) {
 
   const value = {
     therapists,
+    treatments,
     patients,
     currentPatientId,
     requests,
@@ -201,13 +251,19 @@ export function DataProvider({ children }) {
     visitDurations,
     patientById,
     therapistById,
+    treatmentById,
+    treatmentsForTherapist,
     updateSettings,
     updateTherapist,
-    updateVisitDuration,
+    addTreatment,
+    updateTreatment,
+    removeTreatment,
     addStaff,
     updateStaff,
     removeStaff,
     addPatient,
+    bookAppointment,
+    cancelAppointment,
     submitRequest,
     approveRequest,
     rejectRequest,

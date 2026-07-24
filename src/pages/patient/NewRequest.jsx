@@ -1,106 +1,159 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FilePlus2, Sparkles, Check, Clock, CalendarCheck } from 'lucide-react'
+import { addDays, isSameDay, set, startOfDay } from 'date-fns'
+import {
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, Route, HelpCircle, ArrowRight, Phone,
+} from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge } from '../../components/ui.jsx'
-import { VISIT_TYPES } from '../../data/seed.js'
 import { clsx } from '../../components/clsx.js'
+import { dayName, shortDate, hhmm } from '../../lib/format.js'
+import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
+import { classifyRequest } from '../../lib/aiClassifier.js'
 
-const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
+// The next N working days (Sun–Thu), starting today.
+function upcomingWorkingDays(n = 6) {
+  const days = []
+  let d = startOfDay(new Date())
+  while (days.length < n) {
+    if (d.getDay() <= 4) days.push(d)
+    d = addDays(d, 1)
+  }
+  return days
+}
+
+// 30-minute slot grid for a provider + date; a slot is available if it fits the
+// treatment duration without overlapping an existing appointment.
+function buildSlots(date, therapistId, durationMin, appointments) {
+  const now = new Date()
+  const dayEnd = set(date, { hours: WORK_END_HOUR, minutes: 0, seconds: 0, milliseconds: 0 }).getTime()
+  const out = []
+  for (let h = WORK_START_HOUR; h < WORK_END_HOUR; h++) {
+    for (const m of [0, 30]) {
+      const start = set(date, { hours: h, minutes: m, seconds: 0, milliseconds: 0 })
+      const end = start.getTime() + durationMin * 60000
+      if (end > dayEnd) continue
+      const taken = appointments.some(
+        (a) =>
+          a.therapistId === therapistId &&
+          isSameDay(a.start, date) &&
+          start.getTime() < a.start.getTime() + a.durationMin * 60000 &&
+          end > a.start.getTime(),
+      )
+      const past = start.getTime() < now.getTime()
+      out.push({ hour: h, minute: m, start, available: !taken && !past })
+    }
+  }
+  return out
+}
 
 export default function NewRequest() {
-  const { submitRequest, therapists, currentPatientId, therapistById } = useData()
+  const {
+    therapists, treatmentsForTherapist, appointments, currentPatientId,
+    therapistById, treatmentById, bookAppointment, submitRequest,
+  } = useData()
   const navigate = useNavigate()
 
-  const [visitType, setVisitType] = useState('')
+  const [mode, setMode] = useState('book') // 'book' | 'unsure'
   const [therapistId, setTherapistId] = useState('')
-  const [description, setDescription] = useState('')
-  const [preferredTime, setPreferredTime] = useState('גמיש')
-  const [submitted, setSubmitted] = useState(null)
+  const [treatmentId, setTreatmentId] = useState('')
+  const workingDays = useMemo(() => upcomingWorkingDays(6), [])
+  const [date, setDate] = useState(workingDays[0])
+  const [slot, setSlot] = useState(null)
+  const [booked, setBooked] = useState(null)
 
-  function handleSubmit(e) {
-    e.preventDefault()
-    const req = submitRequest({
+  const treatment = treatmentId ? treatmentById[treatmentId] : null
+  const duration = treatment?.durationMin ?? 30
+  const slots = useMemo(
+    () => (therapistId && treatment ? buildSlots(date, therapistId, duration, appointments) : []),
+    [therapistId, treatment, date, duration, appointments],
+  )
+
+  function pickTherapist(id) {
+    setTherapistId(id); setTreatmentId(''); setSlot(null)
+  }
+  function pickTreatment(id) {
+    setTreatmentId(id); setSlot(null)
+  }
+  function confirm() {
+    if (!slot) return
+    const appt = bookAppointment({
       patientId: currentPatientId,
-      description: description.trim(),
-      preferredTherapistId: therapistId || null,
-      visitTypeHint: visitType || null,
-      preferredTime,
+      therapistId,
+      treatmentId,
+      start: set(date, { hours: slot.hour, minutes: slot.minute, seconds: 0, milliseconds: 0 }),
     })
-    setSubmitted(req)
+    setBooked(appt)
   }
 
-  if (submitted) {
-    const routed = therapistById[submitted.ai.routedTo]
+  // ---------- Booked confirmation ----------
+  if (booked) {
+    const t = therapistById[booked.therapistId]
     return (
       <div className="animate-fade space-y-4">
         <Card className="p-6 text-center">
-          <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4">
-            <Check size={32} />
-          </span>
-          <h2 className="text-xl font-bold text-slate-800">הבקשה נשלחה!</h2>
-          <p className="text-slate-500 mt-1 text-sm leading-relaxed">
-            הבקשה שלך התקבלה במרפאה. נחזור אליך עם אישור ופרטי התור בהקדם.
-          </p>
+          <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><Check size={32} /></span>
+          <h2 className="text-xl font-bold text-slate-800">התור נקבע!</h2>
+          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת לפני התור.</p>
         </Card>
-
-        <Card className="p-5 bg-teal-50/60 ring-teal-100">
-          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-3">
-            <Sparkles size={15} /> הבקשה נותחה אוטומטית
-          </div>
+        <Card className="p-5">
           <dl className="space-y-2.5 text-sm">
-            <Row label="רמת דחיפות">
-              <Badge tone={submitted.ai.urgency === 'דחוף' ? 'red' : submitted.ai.urgency === 'בהקדם' ? 'amber' : 'teal'}>
-                {submitted.ai.urgency}
-              </Badge>
-            </Row>
-            <Row label="סוג ביקור"><span className="font-medium text-slate-700">{submitted.ai.visitType}</span></Row>
-            <Row label="נותב אל"><span className="font-medium text-slate-700">{routed.name}</span></Row>
-            <Row label="זמן מועדף"><span className="font-medium text-slate-700">{submitted.preferredTime}</span></Row>
+            <Row label="טיפול"><span className="font-medium text-slate-700">{booked.visitType}</span></Row>
+            <Row label="מטפל/ת"><span className="font-medium text-slate-700">{t.name} · {t.specialty}</span></Row>
+            <Row label="מועד"><span className="font-medium text-slate-700">יום {dayName(booked.start)} {shortDate(booked.start)} · {hhmm(booked.start)}</span></Row>
+            <Row label="משך"><span className="font-medium text-slate-700">{booked.durationMin} דק׳</span></Row>
           </dl>
-          <p className="text-xs text-slate-500 mt-3">{submitted.ai.rationale}</p>
         </Card>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" onClick={() => { setSubmitted(null); setDescription(''); setVisitType(''); setTherapistId('') }}>
-            <FilePlus2 size={16} /> בקשה נוספת
-          </Button>
-          <Button onClick={() => navigate('/patient')}>
-            <CalendarCheck size={16} /> לתורים שלי
-          </Button>
-        </div>
+        <Button size="lg" className="w-full" onClick={() => navigate('/patient')}>
+          <CalendarCheck size={18} /> לתורים שלי
+        </Button>
       </div>
     )
   }
 
+  // ---------- "Not sure?" AI path ----------
+  if (mode === 'unsure') {
+    return <UnsurePath
+      onBack={() => setMode('book')}
+      onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
+      onReferred={(desc, tId) => { submitRequest({ patientId: currentPatientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source: 'הפניה דחופה' }); navigate('/patient') }}
+    />
+  }
+
+  // ---------- Primary: self-booking ----------
   return (
-    <form onSubmit={handleSubmit} className="animate-fade space-y-5">
+    <div className="animate-fade space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-slate-800">בקשת תור חדש</h1>
-        <p className="text-slate-500 text-sm mt-0.5">מלאו את הפרטים ונשלח בקשה למרפאה</p>
+        <h1 className="text-xl font-bold text-slate-800">קביעת תור</h1>
+        <p className="text-slate-500 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
       </div>
 
-      <Field label="סוג ביקור" hint="רשות">
-        <div className="grid grid-cols-2 gap-2">
-          {VISIT_TYPES.map((v) => (
-            <Chip key={v} active={visitType === v} onClick={() => setVisitType(visitType === v ? '' : v)}>{v}</Chip>
-          ))}
+      {/* Not-sure entry */}
+      <button
+        onClick={() => setMode('unsure')}
+        className="w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right"
+      >
+        <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={18} /></span>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-800">לא בטוח/ה איזה טיפול מתאים?</p>
+          <p className="text-xs text-slate-500">תארו מה מטריד — ה-AI ימליץ על טיפול ומטפל</p>
         </div>
-      </Field>
+        <ArrowRight size={16} className="text-teal-600" />
+      </button>
 
-      <Field label="מטפל מועדף" hint="רשות">
+      {/* Step 1 — provider */}
+      <Step n={1} label="בחירת מטפל/ת" done={!!therapistId}>
         <div className="space-y-2">
           {therapists.map((t) => (
             <button
               key={t.id}
-              type="button"
-              onClick={() => setTherapistId(therapistId === t.id ? '' : t.id)}
+              onClick={() => pickTherapist(t.id)}
               className={clsx(
                 'w-full flex items-center gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
                 therapistId === t.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
               )}
             >
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />
+              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
               <div className="flex-1">
                 <p className="text-sm font-medium text-slate-800">{t.name}</p>
                 <p className="text-xs text-slate-400">{t.specialty}</p>
@@ -109,36 +162,153 @@ export default function NewRequest() {
             </button>
           ))}
         </div>
-      </Field>
+      </Step>
 
-      <Field label="תיאור חופשי" hint="קלט ל-AI · מה מטריד אותך?">
+      {/* Step 2 — treatment (filtered to provider) */}
+      {therapistId && (
+        <Step n={2} label="בחירת טיפול" done={!!treatmentId}>
+          <div className="space-y-2">
+            {treatmentsForTherapist(therapistId).map((tr) => (
+              <button
+                key={tr.id}
+                onClick={() => pickTreatment(tr.id)}
+                className={clsx(
+                  'w-full flex items-center justify-between gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
+                  treatmentId === tr.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
+                )}
+              >
+                <span className="text-sm font-medium text-slate-800">{tr.name}</span>
+                <Badge tone="slate"><Clock size={12} /> {tr.durationMin} דק׳</Badge>
+              </button>
+            ))}
+          </div>
+        </Step>
+      )}
+
+      {/* Step 3 — date + time */}
+      {therapistId && treatmentId && (
+        <Step n={3} label="בחירת מועד" done={!!slot}>
+          <div className="mb-3">
+            <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><CalendarDays size={14} className="text-teal-600" /> תאריך</label>
+            <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
+              {workingDays.map((d, i) => {
+                const active = isSameDay(d, date)
+                return (
+                  <button
+                    key={d.toISOString()}
+                    onClick={() => { setDate(d); setSlot(null) }}
+                    className={clsx('shrink-0 w-16 rounded-xl px-2 py-2 text-center ring-1 transition',
+                      active ? 'ring-teal-500 bg-teal-600 text-white' : 'ring-slate-200 text-slate-700')}
+                  >
+                    <p className="text-[11px]">{i === 0 ? 'היום' : `יום ${dayName(d)}`}</p>
+                    <p className="text-sm font-bold tabular-nums">{shortDate(d)}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><Clock size={14} className="text-teal-600" /> שעה <span className="text-slate-400">· משבצת של {duration} דק׳ · אפור = תפוס</span></label>
+          <div className="grid grid-cols-4 gap-2">
+            {slots.map((s) => {
+              const isSel = slot && slot.hour === s.hour && slot.minute === s.minute
+              return (
+                <button
+                  key={`${s.hour}:${s.minute}`}
+                  disabled={!s.available}
+                  onClick={() => setSlot({ hour: s.hour, minute: s.minute })}
+                  className={clsx('rounded-lg py-1.5 text-sm font-medium tabular-nums ring-1 transition',
+                    isSel && 'bg-teal-600 text-white ring-teal-600',
+                    !isSel && s.available && 'bg-white text-slate-600 ring-slate-200 hover:ring-teal-300',
+                    !s.available && 'bg-slate-100 text-slate-300 ring-slate-100 line-through cursor-not-allowed')}
+                >
+                  {hhmm(s.start)}
+                </button>
+              )
+            })}
+          </div>
+        </Step>
+      )}
+
+      {/* Confirm */}
+      <Button size="lg" className="w-full" disabled={!slot} onClick={confirm}>
+        <Check size={18} /> {slot ? `אישור — יום ${dayName(date)} ${hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}` : 'בחרו מועד'}
+      </Button>
+    </div>
+  )
+}
+
+function UnsurePath({ onBack, onProceed, onReferred }) {
+  const { therapistById, treatmentById } = useData()
+  const [description, setDescription] = useState('')
+  const [result, setResult] = useState(null)
+
+  function analyze(e) {
+    e.preventDefault()
+    setResult(classifyRequest({ description: description.trim() }))
+  }
+
+  return (
+    <form onSubmit={analyze} className="animate-fade space-y-4">
+      <button type="button" onClick={onBack} className="text-sm text-teal-600 flex items-center gap-1"><ChevronLeft size={16} /> חזרה לבחירה ידנית</button>
+      <div>
+        <h1 className="text-xl font-bold text-slate-800">לא בטוח/ה מה מתאים?</h1>
+        <p className="text-slate-500 text-sm mt-0.5">תארו מה מטריד ותקבלו המלצה חכמה</p>
+      </div>
+      <div>
+        <label className="text-sm font-medium text-slate-700">מה מטריד אותך? <span className="text-[11px] text-slate-400">קלט ל-AI</span></label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           required
           rows={4}
-          placeholder="לדוגמה: כאב גרון וחום כבר יומיים, לא משתפר..."
-          className="w-full rounded-xl ring-1 ring-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none leading-relaxed"
+          placeholder="לדוגמה: כאב גב תחתון אחרי אימון, מקרין לרגל…"
+          className="mt-2 w-full rounded-xl ring-1 ring-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none leading-relaxed"
         />
-        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-          <Sparkles size={12} /> הטקסט ינותח לזיהוי דחיפות וניתוב למטפל המתאים
-        </p>
-      </Field>
+        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Sparkles size={12} /> ה-AI ימליץ על טיפול ומטפל, ויזהה מקרים שעדיף להפנות למרפאה</p>
+      </div>
+      {!result && (
+        <Button type="submit" size="lg" className="w-full" disabled={!description.trim()}><Sparkles size={16} /> קבלת המלצה</Button>
+      )}
 
-      <Field label="זמן מועדף">
-        <div className="flex flex-wrap gap-2">
-          {TIMES.map((t) => (
-            <Chip key={t} active={preferredTime === t} onClick={() => setPreferredTime(t)}>
-              <Clock size={13} /> {t}
-            </Chip>
-          ))}
-        </div>
-      </Field>
-
-      <Button type="submit" size="lg" className="w-full" disabled={!description.trim()}>
-        שליחת הבקשה
-      </Button>
+      {result && (
+        <Card className="p-5 bg-teal-50/60 ring-teal-100">
+          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-3"><Sparkles size={15} /> ההמלצה שלנו</div>
+          {result.urgentFlag ? (
+            <>
+              <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
+              <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
+              <Button className="w-full mt-4" onClick={() => onReferred(description.trim(), result.routedTo)}>
+                שליחת הפנייה למרפאה
+              </Button>
+            </>
+          ) : (
+            <>
+              <dl className="space-y-2 text-sm">
+                <Row label="טיפול מומלץ"><span className="font-medium text-slate-700">{treatmentById[result.treatmentId]?.name}</span></Row>
+                <Row label="מטפל/ת"><span className="font-medium text-slate-700 flex items-center gap-1"><Route size={13} /> {therapistById[result.routedTo]?.name}</span></Row>
+              </dl>
+              <p className="text-xs text-slate-500 mt-2">{result.rationale}</p>
+              <Button className="w-full mt-4" onClick={() => onProceed(result.routedTo, result.treatmentId)}>
+                המשך להזמנה <ArrowRight size={16} />
+              </Button>
+            </>
+          )}
+        </Card>
+      )}
     </form>
+  )
+}
+
+function Step({ n, label, done, children }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={clsx('grid place-items-center h-6 w-6 rounded-full text-xs font-bold',
+          done ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500')}>{done ? '✓' : n}</span>
+        <h3 className="font-semibold text-slate-700 text-sm">{label}</h3>
+      </div>
+      {children}
+    </div>
   )
 }
 
@@ -148,32 +318,5 @@ function Row({ label, children }) {
       <dt className="text-slate-500">{label}</dt>
       <dd>{children}</dd>
     </div>
-  )
-}
-
-function Field({ label, hint, children }) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2 mb-2">
-        <label className="font-medium text-slate-700 text-sm">{label}</label>
-        {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Chip({ active, onClick, children }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={clsx(
-        'inline-flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm font-medium ring-1 transition',
-        active ? 'bg-teal-600 text-white ring-teal-600' : 'bg-white text-slate-600 ring-slate-200 hover:ring-teal-300',
-      )}
-    >
-      {children}
-    </button>
   )
 }

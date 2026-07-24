@@ -39,6 +39,7 @@ export default function PhoneRequestDialog({ onClose }) {
       preferredTherapistId: therapistId || null,
       visitTypeHint: visitType || null,
       preferredTime,
+      source: 'טלפון',
     })
     onClose()
   }

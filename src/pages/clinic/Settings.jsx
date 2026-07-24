@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap } from 'lucide-react'
+import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { ROLES } from '../../session.jsx'
 import { Card, CardHeader, Button, Badge } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
-import { VISIT_TYPES } from '../../data/seed.js'
 
 const THERAPIST_COLORS = ['#0d9488', '#2563eb', '#9333ea', '#f59e0b', '#ef4444', '#0ea5e9']
-const DURATIONS = [20, 30, 45]
+const DURATIONS = [20, 30, 45, 60]
 // Staff roles that can be assigned from Settings (patients aren't staff).
 const STAFF_ROLES = ['secretary', 'therapist', 'manager']
 
@@ -15,12 +14,25 @@ export default function Settings() {
   const {
     settings, updateSettings,
     therapists, updateTherapist,
-    visitDurations, updateVisitDuration,
+    treatments, addTreatment, updateTreatment, removeTreatment,
     staff, addStaff, updateStaff, removeStaff,
   } = useData()
 
   const [newName, setNewName] = useState('')
   const [newRole, setNewRole] = useState('secretary')
+  const [newTreatment, setNewTreatment] = useState('')
+
+  function handleAddTreatment() {
+    if (!newTreatment.trim()) return
+    addTreatment({ name: newTreatment.trim(), durationMin: 30, therapistIds: therapists[0] ? [therapists[0].id] : [] })
+    setNewTreatment('')
+  }
+  function toggleProvider(tr, therapistId) {
+    const has = tr.therapistIds.includes(therapistId)
+    updateTreatment(tr.id, {
+      therapistIds: has ? tr.therapistIds.filter((x) => x !== therapistId) : [...tr.therapistIds, therapistId],
+    })
+  }
 
   function handleAddStaff() {
     if (!newName.trim()) return
@@ -84,7 +96,7 @@ export default function Settings() {
 
       {/* --- Therapists & visit types --- */}
       <Card className="overflow-hidden">
-        <CardHeader dark title="מטפלים וסוגי ביקור" icon={Stethoscope} />
+        <CardHeader dark title="מטפלים וסוגי טיפול" icon={Stethoscope} />
         <div className="p-5 space-y-5">
           <div>
             <h3 className="text-sm font-medium text-slate-700 mb-2.5">מטפלים</h3>
@@ -122,24 +134,57 @@ export default function Settings() {
           </div>
 
           <div className="border-t border-slate-100 pt-4">
-            <h3 className="text-sm font-medium text-slate-700 mb-2.5">משך טיפול לפי סוג ביקור</h3>
-            <div className="grid sm:grid-cols-2 gap-2">
-              {VISIT_TYPES.map((v) => (
-                <div key={v} className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-slate-200 px-3 py-2">
-                  <span className="text-sm text-slate-700">{v}</span>
-                  <select
-                    value={visitDurations[v]}
-                    onChange={(e) => updateVisitDuration(v, Number(e.target.value))}
-                    className="h-9 rounded-lg ring-1 ring-slate-300 px-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500"
-                  >
-                    {DURATIONS.map((d) => (
-                      <option key={d} value={d}>{d} דק׳</option>
-                    ))}
-                  </select>
+            <h3 className="text-sm font-medium text-slate-700 mb-2.5">סוגי טיפול — משך ושיוך למטפל</h3>
+            <div className="space-y-2">
+              {treatments.map((tr) => (
+                <div key={tr.id} className="rounded-xl ring-1 ring-slate-200 p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      value={tr.name}
+                      onChange={(e) => updateTreatment(tr.id, { name: e.target.value })}
+                      className="h-9 flex-1 min-w-[160px] rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <select
+                      value={tr.durationMin}
+                      onChange={(e) => updateTreatment(tr.id, { durationMin: Number(e.target.value) })}
+                      className="h-9 rounded-lg ring-1 ring-slate-300 px-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      {DURATIONS.map((d) => (<option key={d} value={d}>{d} דק׳</option>))}
+                    </select>
+                    <button onClick={() => removeTreatment(tr.id)} title="הסרת טיפול" className="p-2 rounded-lg text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                    <span className="text-xs text-slate-400 ml-1">ניתן אצל:</span>
+                    {therapists.map((t) => {
+                      const on = tr.therapistIds.includes(t.id)
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => toggleProvider(tr, t.id)}
+                          className={clsx('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs ring-1 transition',
+                            on ? 'ring-teal-500 bg-teal-50 text-teal-700' : 'ring-slate-200 text-slate-500')}
+                        >
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color }} />
+                          {t.name}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               ))}
+              {/* Add treatment */}
+              <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 p-3">
+                <input
+                  value={newTreatment}
+                  onChange={(e) => setNewTreatment(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddTreatment()}
+                  placeholder="שם טיפול חדש"
+                  className="h-9 flex-1 min-w-0 rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                <Button size="sm" disabled={!newTreatment.trim()} onClick={handleAddTreatment}><Plus size={15} /> הוספה</Button>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">משפיע על אורך המשבצת בקביעת תור.</p>
+            <p className="text-xs text-slate-400 mt-2">המשך והשיוך קובעים אילו טיפולים המטופל יכול להזמין ואת אורך המשבצת ביומן.</p>
           </div>
         </div>
       </Card>

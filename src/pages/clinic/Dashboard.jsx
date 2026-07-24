@@ -66,7 +66,7 @@ export default function Dashboard() {
               <span className="grid place-items-center h-8 w-8 rounded-lg bg-white/10 text-amber-300 shrink-0">
                 <AlertTriangle size={17} />
               </span>
-              <h3 className="font-semibold text-white">בקשות שדורשות טיפול</h3>
+              <h3 className="font-semibold text-white">הפניות ובקשות טלפוניות</h3>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className="rounded-full bg-red-500 text-white px-3 py-1 text-xs font-semibold">
@@ -83,7 +83,7 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-xs text-slate-400 px-5 pt-2.5">
-            סווגו אוטומטית ע״י AI — אישור קובע תור ומנתב למטפל
+            רוב ההזמנות עצמיות וזורמות ישר ליומן — כאן רק מקרים שדורשים מגע אנושי (הפניה דחופה / טלפון)
           </p>
           <div className="overflow-x-auto scroll-thin">
             <div className="min-w-[460px]">
