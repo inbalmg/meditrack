@@ -1,126 +1,111 @@
 # MediTrack Clinic
 
-פרויקט גמר · קורס "מיישם AI" (יולי 2026). B2B SaaS לניהול תורים, בקשות ומשימות
-עבור קליניקה רפואית קטנה — מחליף תיאום טלפוני ופתקים בתהליך דיגיטלי מקצה-לקצה, עם
-סיווג בקשות אוטומטי (AI) ואוטומציות לתזכורות ומעקב.
+פרויקט גמר · קורס "מיישם AI" (2026). דמו קליקבילי (frontend-first) בעברית מלאה (RTL)
+של מערכת לניהול **קליניקת טיפולים** קטנה (פיזיותרפיה ורפואה משלימה) — הזמנת תורים,
+בקשות ומשימות. מחליף תיאום טלפוני ופתקים בתהליך דיגיטלי מקצה-לקצה.
 
-> מסמך האפיון המלא: `C:\קורס מיישם AI\פרוייקט גמר\MediTrack-אפיון-מלא.pdf` (20 עמ').
-> אפליקציית מטופלים קיימת (נספח, אב-טיפוס): `C:\AI_Projects\Med-Appt-Tracker`.
+> אפיון מלא + מסמכי ההגשה (PDF/DOCX) ותרשימי הזרימה AS-IS/TO-BE (Whimsical):
+> `C:\קורס מיישם AI\פרוייקט גמר\`.
 
-## מה זה
+## מודל המוצר — הזמנה עצמית היברידית
 
-הדגמה קליקבילית (frontend-first) של המערכת, בעברית מלאה (RTL), בפלטת "טורקיז רפואי".
-כל הנתונים הם **נתוני דמו בזיכרון** — אין backend. סיווג ה-AI רץ כרגע כלוגיקה
-דטרמיניסטית (rule-based) בעלת אותו input/output schema של קריאת LLM אמיתית, כך שאפשר
-להחליף אותה בקריאת API (למשל Claude) בלי לגעת ב-UI.
+הלב של המערכת (מתועד גם בראש `src/data/seed.js`):
 
-זהו "מסלול B" מהאפיון (React + נתונים), בגרסת דמו ללא Supabase/n8n בשלב זה.
+- הקליניקה מגדירה **טיפולים** (`treatments`): שם + משך + אילו מטפלים נותנים אותם.
+- **מסלול ראשי — הזמנה עצמית:** המטופל בוחר מטפל → טיפול → משבצת פנויה, והתור נקבע
+  ישירות (`bookAppointment`, סטטוס "קבוע", **ללא אישור מזכירה**). אורך המשבצת = משך הטיפול.
+- **מסלול משני — "לא בטוח/ה":** תיאור חופשי → `classifyRequest` מציע טיפול+מטפל ומרים
+  **דגל דחיפות** (safety-net). בקשה כזו נכנסת ל-`submitRequest` וממתינה לאישור אנושי.
+- **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
+  עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
+- כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).
+
+מטפלים (`t1`–`t3`): רועי שקד·פיזיותרפיה · ד"ר דנה כהן·רפואה סינית ודיקור ·
+מיכל לוי·רפלקסולוגיה ועיסוי. טיפולים `tr1`–`tr6` מוגדרים ב-`seed.js`.
 
 ## הרצה
 
 ```bash
 npm install
 npm run dev      # http://localhost:5180
-npm run build    # בנייה לפרודקשן
+npm run build
 ```
 
-הפעלה דרך Claude Code: preview_start עם `name: "meditrack"` (מוגדר ב-`C:\CLAUDE\.claude\launch.json`).
+דרך Claude Code: `preview_start` עם `name: "meditrack"` (מוגדר ב-`C:\CLAUDE\.claude\launch.json`).
 
 ## סטאק
 
 - **Vite 5** + **React 18** (JSX, ללא TypeScript)
-- **Tailwind CSS v4** (דרך `@tailwindcss/vite`, טוקנים ב-`src/index.css` תחת `@theme`)
-- **react-router-dom v6** · **lucide-react** (אייקונים) · **date-fns** (תאריכים)
-- ללא ספריית רכיבים חיצונית — ערכת UI קטנה בסגנון shadcn נבנתה ידנית ב-`src/components/ui.jsx`
+- **Tailwind CSS v4** (`@tailwindcss/vite`, טוקנים ב-`src/index.css` תחת `@theme`, פלטת טורקיז/ink)
+- **react-router-dom v6** · **lucide-react** · **date-fns**
+- ערכת UI קטנה בסגנון shadcn שנבנתה ידנית ב-`src/components/ui.jsx` (ללא ספריית רכיבים חיצונית)
 
 ## ארכיטקטורה
 
 ```
 src/
-  main.jsx                 נקודת כניסה · עוטף ב-BrowserRouter + DataProvider
-  App.jsx                  ניתוב + SessionProvider + RequireRole (הגנת אזורים לפי תפקיד)
-  session.jsx              מצב התפקיד המחובר + מטריצת ההרשאות (ROLES)
-  index.css                Tailwind v4 + טוקני עיצוב (טורקיז, ink, canvas)
-
+  main.jsx                 כניסה · BrowserRouter + DataProvider
+  App.jsx                  ניתוב + SessionProvider + RequireRole (הגנת אזור לפי תפקיד)
+  session.jsx              התפקיד המחובר + מטריצת הרשאות (ROLES)
+  index.css                Tailwind v4 + טוקני עיצוב
   data/
-    seed.js                נתוני דמו: מטפלים, מטופלים, בקשות, תורים, משימות (~40 תורים/שבוע)
-    store.jsx              DataProvider — state מוטבל (כולל מטופלים) + פעולות (submitRequest, addPatient, אישור בקשה, סימון הגעה, משימות)
+    seed.js                מודל המוצר + נתוני דמו: treatments (מקור אמת), מטפלים, מטופלים,
+                           בקשות (חריגים), ~40 תורים/שבוע, משימות. נגזרים: VISIT_TYPES, visitDuration
+    store.jsx              DataProvider — state + כל הפעולות (ראו למטה)
   lib/
-    aiClassifier.js        classifyRequest() — סיווג דחיפות + סוג ביקור + ניתוב + תגיות
-    format.js              עזרי תאריך/שעה בעברית (hhmm, friendlyDate, relativeFromNow)
+    aiClassifier.js        classifyRequest() — טיפול+מטפל מוצע + דגל דחיפות
+    format.js              עזרי תאריך/שעה בעברית
   components/
     ui.jsx                 Card, Badge, Button, Kpi, Avatar, Empty ...
-    RequestRow.jsx         שורת בקשה בטבלה (מטופל/סוג ביקור/התקבלה) + חץ הרחבה (גיל/טלפון/מלל/ניתוב/תגיות)
-    AppointmentActions.jsx כפתורי check-in/out (הגיע/סיום/לא הגיע), מוגן ב-role.canApprove · prop `compact` (אייקונים בלבד)
-    ScheduleDialog.jsx     בורר משבצות לקביעת תור (מטפל/תאריך/שעה, זמינות חיה)
-    PhoneRequestDialog.jsx טופס קליטת בקשה טלפונית ע״י המזכירה (מטופל קיים/חדש → submitRequest + סיווג AI)
-    clsx.js                מאחד classNames (ללא תלות)
-  layouts/
-    ClinicLayout.jsx       סייד-בר כהה (RTL) לצוות הקליניקה
-    DoctorLayout.jsx       פריסת רופא — מצב צפייה בלבד
-    PatientLayout.jsx      מסגרת מובייל לפורטל המטופל
+    RequestRow.jsx         שורת בקשה (מטופל / תגית source / סוג ביקור) + הרחבה (מלל/ניתוב/תגיות)
+    ScheduleDialog.jsx     בורר משבצות לאישור בקשת AI/טלפון (מטפל/תאריך/שעה, זמינות חיה)
+    PhoneRequestDialog.jsx קליטת בקשה טלפונית ע"י המזכירה (source:'טלפון')
+    AppointmentActions.jsx check-in/out (הגיע/סיום/לא הגיע), מוגן ב-role.canApprove
+    clsx.js
+  layouts/                 ClinicLayout (דסקטופ) · DoctorLayout (צפייה) · PatientLayout (מובייל)
   pages/
     Login.jsx              שתי כניסות (קליניקה / מטופל) + בחירת תפקיד
     clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
-    doctor/  DoctorDay · DoctorCalendar · VisitCard
-    patient/ NewRequest · MyAppointments
+    doctor/  DoctorDay · DoctorCalendar · VisitCard   (צפייה בלבד)
+    patient/ NewRequest (הזמנה עצמית רב-שלבית + מסלול "לא בטוח") · MyAppointments (כולל ביטול/שינוי)
 ```
 
-## פרסונות ותפקידים (`session.jsx` → `ROLES`)
+## תפקידים (`session.jsx` → `ROLES`)
 
-| תפקיד | אזור | הרשאות עיקריות |
-|-------|------|----------------|
-| מזכירות (`secretary`) | `/clinic` | צינור הבקשות, יומן, משימות · אישור/דחייה · הגדרות · **ללא דוחות** |
-| מנהל/ת (`manager`) | `/clinic` | הכל + דוחות ואנליטיקה |
-| רופא/מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן והמשימות שלו (`therapistId: t1`) |
-| מטופל (`patient`) | `/patient` | בקשת תור + מעקב (מובייל) |
+| תפקיד | אזור | עיקר |
+|-------|------|------|
+| מזכירות (`secretary`) | `/clinic` | בקשות (חריגים), יומן, משימות, הגדרות · **ללא דוחות** |
+| מנהל/ת (`manager`) | `/clinic` | הכל + דוחות |
+| מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן/המשימות שלו (`therapistId: t1`) |
+| מטופל (`patient`) | `/patient` | הזמנה עצמית + מעקב (מובייל) |
 
-`RequireRole` (ב-`App.jsx`) חוסם גישה חוצת-אזורים ומפנה ל-`role.home`. שתי כניסות
-נפרדות — אין מסך משותף עם הרשאות (הפרדה ברמת הכניסה, כמו באפיון).
+`RequireRole` (`App.jsx`) חוסם גישה חוצת-אזור ומפנה ל-`role.home`. שתי כניסות נפרדות.
 
-## 9 המסכים (מיפוי לאפיון)
+## פעולות ה-store (`store.jsx`)
 
-**צד הקליניקה (דסקטופ):** מרכז פעילות (KPI + בקשות עם סיווג AI + תורי היום + משימות) ·
-יומן שבועי (09:00–18:00, סינון לפי מטפל/סוג, ריבוי מטפלים זה לצד זה) · לוח משימות
-(קנבן, תגית "אוטומציה") · דוחות ואנליטיקה (תפוסה, מגמת אי-הגעות, פילוח, סיכום AI).
-
-**צד הרופא (צפייה בלבד):** היום שלי (כרטיס "התור הבא" עם תגיות AI) · היומן שלי (ללא
-בורר מטפל) · כרטיס ביקור (סיבת פנייה, תגיות AI, היסטוריה ותרופות — לקריאה בלבד).
-
-**צד המטופל (מובייל):** בקשת תור חדש (סוג ביקור/מטפל רשות + תיאור חופשי כקלט ל-AI) ·
-התורים שלי (סטטוס בקשה אחרונה, תורים קרובים, תזכורות).
+- **הזמנה עצמית:** `bookAppointment({patientId,therapistId,treatmentId,start,reason})` — תור "קבוע" ישיר.
+- **ביטול:** `cancelAppointment(id)` — מפנה את המשבצת.
+- **מסלול AI:** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id)`.
+- **ניהול טיפולים (Settings):** `addTreatment` / `updateTreatment` / `removeTreatment`.
+- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`.
+- **סטטוס/משימות:** `setAppointmentStatus` (אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
+  `setTaskStatus`, `addTask`.
+- **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
+  — משפיעות בפועל ברחבי האפליקציה.
 
 ## AI ואוטומציות
 
-- **`classifyRequest`** (`src/lib/aiClassifier.js`) מחזיר `{ urgency, urgencyScore,
-  visitType, routedTo, tags, rationale }`. עקרון מפתח מהאפיון: **בחירת המטופל מנצחת** —
-  אם המטופל בחר סוג ביקור/מטפל, ה-AI רק משלים חוסר; אחרת מסיק מהטקסט החופשי.
-- **החלפה ל-LLM אמיתי:** להפוך את `classifyRequest` ל-async ולקרוא ל-API עם אותו schema.
-- **אוטומציות מדומות** ב-`store.jsx`: אי-הגעה (`status = 'לא הגיע'`) יוצרת אוטומטית משימת
-  פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
-- **סימון הגעה/סיום/אי-הגעה** (`AppointmentActions`): המזכירה/מנהל מסמנים check-in ו-check-out
-  מרשימת "תורי היום" (דשבורד) ומלחיצה על תור ביומן (מודל). לפי האפיון אי-הגעה אוטומטית
-  אחרי X דק' — כאן ידני לדמו (עם tooltip מסביר). הרופא בצפייה בלבד (הרכיב מוגן ב-`role.canApprove`).
-- **הגדרות** (`pages/clinic/Settings.jsx`, מזכירות+מנהל/ת דרך `role.canSettings`): כל ההגדרות
-  יושבות ב-`store` ו**משפיעות בפועל** — `reminderHours`/`remindersEnabled` → טקסט התזכורת
-  בפורטל המטופל; `noShowMinutes` → ה-tooltip של "לא הגיע"; `followUpOnNoShow` → האם
-  `setAppointmentStatus` יוצר משימת פולו-אפ; `visitDurations` → אורך המשבצת ב-`ScheduleDialog`;
-  עריכת מטפל (שם/צבע) → מתעדכנת חי ביומן ובכל האפליקציה. בנוסף: ניהול משתמשי צוות (`staff`).
-- **קביעת תור באישור בקשה** (`ScheduleDialog`): לחיצה על "אישור וקביעת תור" פותחת בורר —
-  מטפל (ברירת מחדל = ניתוב ה-AI), תאריך (מוצע לפי דחיפות, מדלג על ימים ללא זמינות),
-  ומשבצת שעה מרשת 09:00–18:00 המחושבת חי מ-`appointments`: משבצות תפוסות חסומות (מונע
-  כפל-הזמנה), והחלון המועדף של המטופל (`PREFERRED_WINDOWS`) מודגש. אישור קורא
-  `approveRequest(id, slot)` — התור נוצר במשבצת שנבחרה.
+- **`classifyRequest`** (`lib/aiClassifier.js`) מקבל `{description, preferredTherapistId, visitTypeHint}`
+  ומחזיר `{urgency, urgencyScore, urgentFlag, treatmentId, visitType, routedTo, tags, rationale}`.
+  עקרון: **בחירת המטופל מנצחת** — hint של מטפל/טיפול גובר; אחרת מיפוי מילות-מפתח (`TREATMENT_RULES`),
+  ברירת מחדל `tr1` (פיזיו הערכה). דחיפות = `URGENT_TERMS` → `urgentFlag` → הפניה לאדם.
+- **החלפה ל-LLM אמיתי:** להפוך את `classifyRequest` ל-async ולקרוא ל-API (Claude) עם אותו
+  input/output schema — ה-UI לא משתנה.
+- **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
 
 ## מוסכמות
 
-- עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`). טקסטים בקוד בעברית — לשמור על כך.
+- עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`); טקסטים בקוד בעברית — לשמור.
 - צבעים דרך טוקני Tailwind (`teal-*`, `ink-*`, `canvas`) — לא hex ישיר ב-JSX.
-- state הוא בזיכרון בלבד — **רענון דף מאפס את הסשן** (מנתק ומחזיר ל-login). זו התנהגות
-  צפויה בדמו; ניווט אמיתי הוא דרך קישורי ה-in-app (SPA), לא הקלדת URL.
-- כל בעיה שנראית בדפדפן: לתקן בקוד המקור ולא ב-DevTools.
-
-## מצב
-
-כל 9 המסכים נבנו ואומתו בדפדפן (הרשאות, סיווג AI, אישור בקשה, קנבן, טופס מטופל).
-צעד הבא אפשרי: חיבור Supabase (מסלול B מלא) והחלפת הסיווג בקריאת Claude אמיתית.
+- **state בזיכרון בלבד** — רענון דף מאפס את הסשן (מחזיר ל-login). ניווט אמיתי דרך קישורי SPA, לא URL.
+- כל בעיה שנראית בדפדפן — לתקן בקוד המקור, לא ב-DevTools.

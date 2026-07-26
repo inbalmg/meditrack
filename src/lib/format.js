@@ -1,6 +1,42 @@
-import { format, isToday, isTomorrow, differenceInMinutes } from 'date-fns'
+import {
+  addDays,
+  addMonths,
+  differenceInMinutes,
+  format,
+  isToday,
+  isTomorrow,
+  startOfDay,
+  startOfWeek,
+} from 'date-fns'
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
+
+// כמה קדימה (וגם אחורה, ביומנים) מותר לנווט/לקבוע תורים.
+export const BOOKING_HORIZON_MONTHS = 6
+
+// תחילת השבוע הישראלי (ראשון) שמכיל את d.
+export const weekStartOf = (d) => startOfWeek(d, { weekStartsOn: 0 })
+
+// היום הראשון שניתן לקבוע בו תור: היום, או יום א׳–ה׳ הקרוב אם היום שישי/שבת.
+export function firstBookingDay() {
+  let d = startOfDay(new Date())
+  while (d.getDay() > 4) d = addDays(d, 1) // 0=ראשון … 4=חמישי
+  return d
+}
+
+// תחילת השבוע האחרון שאליו מותר לנווט קדימה (6 חודשים מהיום).
+export const maxBookingWeekStart = () =>
+  weekStartOf(addMonths(new Date(), BOOKING_HORIZON_MONTHS))
+
+// ימי העבודה (א׳–ה׳) של שבוע נתון, לא לפני minDay (אם ניתן).
+export function weekWorkingDays(weekStart, minDay) {
+  const out = []
+  for (let i = 0; i <= 4; i++) {
+    const d = addDays(weekStart, i)
+    if (!minDay || d >= minDay) out.push(d)
+  }
+  return out
+}
 
 export function hhmm(d) {
   return format(d, 'HH:mm')

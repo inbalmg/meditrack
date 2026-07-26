@@ -1,26 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { addDays, isSameDay, set, startOfDay } from 'date-fns'
+import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, Route, HelpCircle, ArrowRight, Phone,
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
-import { dayName, shortDate, hhmm } from '../../lib/format.js'
+import {
+  dayName, shortDate, hhmm,
+  firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
+} from '../../lib/format.js'
 import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
 import { classifyRequest } from '../../lib/aiClassifier.js'
-
-// The next N working days (Sun–Thu), starting today.
-function upcomingWorkingDays(n = 6) {
-  const days = []
-  let d = startOfDay(new Date())
-  while (days.length < n) {
-    if (d.getDay() <= 4) days.push(d)
-    d = addDays(d, 1)
-  }
-  return days
-}
 
 // 30-minute slot grid for a provider + date; a slot is available if it fits the
 // treatment duration without overlapping an existing appointment.
@@ -57,10 +49,25 @@ export default function NewRequest() {
   const [mode, setMode] = useState('book') // 'book' | 'unsure'
   const [therapistId, setTherapistId] = useState('')
   const [treatmentId, setTreatmentId] = useState('')
-  const workingDays = useMemo(() => upcomingWorkingDays(6), [])
-  const [date, setDate] = useState(workingDays[0])
+  // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
+  const firstDay = useMemo(() => firstBookingDay(), [])
+  const thisWeekStart = useMemo(() => weekStartOf(firstDay), [firstDay])
+  const maxWeekStart = useMemo(() => maxBookingWeekStart(), [])
+  const [weekStart, setWeekStart] = useState(thisWeekStart)
+  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay), [weekStart, firstDay])
+  const [date, setDate] = useState(firstDay)
   const [slot, setSlot] = useState(null)
   const [booked, setBooked] = useState(null)
+  const canPrevWeek = weekStart > thisWeekStart
+  const canNextWeek = weekStart < maxWeekStart
+
+  function shiftWeek(dir) {
+    const next = addDays(weekStart, dir * 7)
+    if (next < thisWeekStart || next > maxWeekStart) return
+    setWeekStart(next)
+    setDate(weekWorkingDays(next, firstDay)[0] ?? date)
+    setSlot(null)
+  }
 
   const treatment = treatmentId ? treatmentById[treatmentId] : null
   const duration = treatment?.durationMin ?? 30
@@ -189,9 +196,32 @@ export default function NewRequest() {
       {therapistId && treatmentId && (
         <Step n={3} label="בחירת מועד" done={!!slot}>
           <div className="mb-3">
-            <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><CalendarDays size={14} className="text-teal-600" /> תאריך</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><CalendarDays size={14} className="text-teal-600" /> תאריך</label>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => shiftWeek(-1)}
+                  disabled={!canPrevWeek}
+                  title="שבוע קודם"
+                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                >
+                  <ChevronRight size={15} />
+                </button>
+                <span className="text-[11px] text-slate-400 tabular-nums w-20 text-center">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
+                <button
+                  type="button"
+                  onClick={() => shiftWeek(1)}
+                  disabled={!canNextWeek}
+                  title="שבוע הבא"
+                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                >
+                  <ChevronLeft size={15} />
+                </button>
+              </div>
+            </div>
             <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
-              {workingDays.map((d, i) => {
+              {workingDays.map((d) => {
                 const active = isSameDay(d, date)
                 return (
                   <button
@@ -200,7 +230,7 @@ export default function NewRequest() {
                     className={clsx('shrink-0 w-16 rounded-xl px-2 py-2 text-center ring-1 transition',
                       active ? 'ring-teal-500 bg-teal-600 text-white' : 'ring-slate-200 text-slate-700')}
                   >
-                    <p className="text-[11px]">{i === 0 ? 'היום' : `יום ${dayName(d)}`}</p>
+                    <p className="text-[11px]">{isSameDay(d, new Date()) ? 'היום' : `יום ${dayName(d)}`}</p>
                     <p className="text-sm font-bold tabular-nums">{shortDate(d)}</p>
                   </button>
                 )

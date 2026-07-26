@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react'
-import { addDays, startOfWeek, isSameDay } from 'date-fns'
-import { CalendarDays, Filter, X, Clock, Phone } from 'lucide-react'
+import { addDays, isSameDay, subMonths } from 'date-fns'
+import { CalendarDays, Filter, X, Clock, Phone, ChevronRight, ChevronLeft } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Avatar } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
-import { hhmm, dayName, shortDate, friendlyDate } from '../../lib/format.js'
+import {
+  hhmm, dayName, shortDate, friendlyDate,
+  weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
+} from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 import { VISIT_TYPES, VISIT_TYPE_SHORT } from '../../data/seed.js'
 
@@ -46,7 +49,22 @@ export default function Calendar() {
 
   const selected = selectedId ? appointments.find((a) => a.id === selectedId) : null
 
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 0 })
+  // ניווט שבועי: השבוע הנוכחי כברירת מחדל, עד ±6 חודשים.
+  const thisWeekStart = useMemo(() => weekStartOf(new Date()), [])
+  const minWeekStart = useMemo(() => weekStartOf(subMonths(new Date(), BOOKING_HORIZON_MONTHS)), [])
+  const maxWeekStart = useMemo(() => maxBookingWeekStart(), [])
+  const [weekStart, setWeekStart] = useState(thisWeekStart)
+  const canPrev = weekStart > minWeekStart
+  const canNext = weekStart < maxWeekStart
+  const atThisWeek = isSameDay(weekStart, thisWeekStart)
+
+  function shiftWeek(dir) {
+    const next = addDays(weekStart, dir * 7)
+    if (next < minWeekStart || next > maxWeekStart) return
+    setWeekStart(next)
+    setSelectedId(null)
+  }
+
   const days = Array.from({ length: DAYS }, (_, i) => addDays(weekStart, i))
   const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 
@@ -70,6 +88,32 @@ export default function Calendar() {
           <p className="text-slate-500 mt-0.5">תצוגה שבועית · {shortDate(days[0])}–{shortDate(days[DAYS - 1])} · 09:00–18:00</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-0.5 rounded-xl ring-1 ring-slate-200 bg-white p-0.5">
+            <button
+              onClick={() => shiftWeek(-1)}
+              disabled={!canPrev}
+              title="שבוע קודם"
+              className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              onClick={() => setWeekStart(thisWeekStart)}
+              disabled={atThisWeek}
+              className={clsx('px-2.5 h-8 rounded-lg text-sm font-medium transition',
+                atThisWeek ? 'text-slate-300' : 'text-teal-700 hover:bg-teal-50')}
+            >
+              היום
+            </button>
+            <button
+              onClick={() => shiftWeek(1)}
+              disabled={!canNext}
+              title="שבוע הבא"
+              className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </div>
           <Filter size={16} className="text-slate-400" />
           <Select value={therapistFilter} onChange={setTherapistFilter}
             options={[{ value: 'all', label: 'כל המטפלים' }, ...therapists.map((t) => ({ value: t.id, label: t.name }))]} />

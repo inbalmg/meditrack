@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react'
-import { addDays, isSameDay, set, startOfDay } from 'date-fns'
-import { X, Sparkles, CalendarDays, Clock, Check, Route } from 'lucide-react'
+import { addDays, isSameDay, set } from 'date-fns'
+import { X, Sparkles, CalendarDays, Clock, Check, Route, ChevronRight, ChevronLeft } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Card, Badge, Button, Avatar } from './ui.jsx'
 import { clsx } from './clsx.js'
-import { dayName, shortDate, hhmm } from '../lib/format.js'
+import {
+  dayName, shortDate, hhmm,
+  firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
+} from '../lib/format.js'
 import {
   PREFERRED_WINDOWS,
   WORK_START_HOUR,
@@ -14,17 +17,6 @@ import {
 const URGENCY_TONE = { 'דחוף': 'red', 'בהקדם': 'amber', 'רגיל': 'teal' }
 // How soon to suggest the appointment, by AI urgency (index into working days).
 const URGENCY_DATE_OFFSET = { 'דחוף': 0, 'בהקדם': 1, 'רגיל': 2 }
-
-// The next N working days (Sun–Thu), starting today.
-function upcomingWorkingDays(n = 6) {
-  const days = []
-  let d = startOfDay(new Date())
-  while (days.length < n) {
-    if (d.getDay() <= 4) days.push(d) // 0=Sun … 4=Thu
-    d = addDays(d, 1)
-  }
-  return days
-}
 
 // The scheduling flow: the secretary picks the therapist, date and an available
 // slot. Availability is computed live from existing appointments so a therapist
@@ -38,7 +30,10 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
   const duration = visitDurations[ai.visitType] ?? 20
   const [wFrom, wTo] = PREFERRED_WINDOWS[request.preferredTime] || PREFERRED_WINDOWS['גמיש']
 
-  const workingDays = useMemo(() => upcomingWorkingDays(6), [])
+  // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
+  const firstDay = useMemo(() => firstBookingDay(), [])
+  const thisWeekStart = useMemo(() => weekStartOf(firstDay), [firstDay])
+  const maxWeekStart = useMemo(() => maxBookingWeekStart(), [])
 
   // Build the 30-minute slot grid for a given therapist + date.
   function buildSlots(d, tId) {
@@ -68,18 +63,37 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
   // Default date: earliest working day (from the urgency-preferred offset) that
   // actually has an open slot for the routed therapist — so "today" isn't
   // suggested when it's already fully booked or past working hours.
-  const recommendedIdx = useMemo(() => {
-    const startIdx = Math.min(URGENCY_DATE_OFFSET[ai.urgency] ?? 2, workingDays.length - 1)
-    for (let i = startIdx; i < workingDays.length; i++) {
-      if (buildSlots(workingDays[i], ai.routedTo).some((s) => s.available)) return i
+  const recommendedDate = useMemo(() => {
+    const offset = URGENCY_DATE_OFFSET[ai.urgency] ?? 2
+    let d = firstDay
+    let stepped = 0
+    while (stepped < offset) {
+      d = addDays(d, 1)
+      if (d.getDay() <= 4) stepped++
     }
-    return startIdx
+    for (let i = 0; i < 180; i++) {
+      if (d.getDay() <= 4 && buildSlots(d, ai.routedTo).some((s) => s.available)) return d
+      d = addDays(d, 1)
+    }
+    return firstDay
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDays])
+  }, [])
 
   const [therapistId, setTherapistId] = useState(ai.routedTo)
-  const [date, setDate] = useState(workingDays[recommendedIdx])
+  const [weekStart, setWeekStart] = useState(() => weekStartOf(recommendedDate))
+  const [date, setDate] = useState(recommendedDate)
   const [selected, setSelected] = useState(null) // { hour, minute }
+  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay), [weekStart, firstDay])
+  const canPrevWeek = weekStart > thisWeekStart
+  const canNextWeek = weekStart < maxWeekStart
+
+  function shiftWeek(dir) {
+    const next = addDays(weekStart, dir * 7)
+    if (next < thisWeekStart || next > maxWeekStart) return
+    setWeekStart(next)
+    setDate(weekWorkingDays(next, firstDay)[0] ?? date)
+    setSelected(null)
+  }
 
   const slots = useMemo(
     () => buildSlots(date, therapistId),
@@ -156,9 +170,33 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
 
           {/* Date */}
           <Field label="תאריך">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] text-slate-400 tabular-nums">{shortDate(weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => shiftWeek(-1)}
+                  disabled={!canPrevWeek}
+                  title="שבוע קודם"
+                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                >
+                  <ChevronRight size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => shiftWeek(1)}
+                  disabled={!canNextWeek}
+                  title="שבוע הבא"
+                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                >
+                  <ChevronLeft size={15} />
+                </button>
+              </div>
+            </div>
             <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
-              {workingDays.map((d, i) => {
+              {workingDays.map((d) => {
                 const active = isSameDay(d, date)
+                const recommended = isSameDay(d, recommendedDate)
                 return (
                   <button
                     key={d.toISOString()}
@@ -168,9 +206,9 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
                       active ? 'ring-teal-500 bg-teal-600 text-white' : 'ring-slate-200 hover:ring-teal-300 text-slate-700',
                     )}
                   >
-                    <p className="text-xs">{i === 0 ? 'היום' : `יום ${dayName(d)}`}</p>
+                    <p className="text-xs">{isSameDay(d, new Date()) ? 'היום' : `יום ${dayName(d)}`}</p>
                     <p className="text-sm font-bold tabular-nums">{shortDate(d)}</p>
-                    {i === recommendedIdx && (
+                    {recommended && (
                       <p className={clsx('text-[10px] mt-0.5', active ? 'text-teal-100' : 'text-teal-600')}>מומלץ</p>
                     )}
                   </button>
