@@ -13,6 +13,7 @@ import Settings from './pages/clinic/Settings.jsx'
 
 import DoctorDay from './pages/doctor/DoctorDay.jsx'
 import DoctorCalendar from './pages/doctor/DoctorCalendar.jsx'
+import DoctorTasks from './pages/doctor/DoctorTasks.jsx'
 import VisitCard from './pages/doctor/VisitCard.jsx'
 
 import NewRequest from './pages/patient/NewRequest.jsx'
@@ -60,6 +61,7 @@ function AppRoutes() {
       >
         <Route index element={<DoctorDay />} />
         <Route path="calendar" element={<DoctorCalendar />} />
+        <Route path="tasks" element={<DoctorTasks />} />
         <Route path="visit/:apptId" element={<VisitCard />} />
       </Route>
 

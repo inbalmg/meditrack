@@ -1,182 +1,367 @@
-import { useMemo, useState } from 'react'
-import { isToday, isThisWeek } from 'date-fns'
-import { Link } from 'react-router-dom'
+import { useMemo, useState, useRef } from 'react'
+import { isToday } from 'date-fns'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
   Clock3,
   ListTodo,
   AlertTriangle,
-  ArrowLeft,
+  ChevronLeft,
   CheckCircle2,
   Clock,
   Phone,
+  Info,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
-import { Card, CardHeader, Kpi, Badge, Avatar, Empty } from '../../components/ui.jsx'
+import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
 import RequestRow, { REQ_COLS } from '../../components/RequestRow.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import PhoneRequestDialog from '../../components/PhoneRequestDialog.jsx'
 import { hhmm } from '../../lib/format.js'
+import { clsx } from '../../components/clsx.js'
+
+// Demo greeting name — in production this comes from the authenticated user.
+const DEMO_STAFF_NAME = 'מיכל'
+// One-line onboarding explanation of why this queue is short (exceptions only).
+// Lives in the header info tooltip + the empty state instead of a fixed paragraph.
+const QUEUE_HINT =
+  'רוב הבקשות עצמיות ומשובצות ישר ביומן — כאן רק מקרים שדורשים טיפול אנושי (הפניה דחופה / טלפון)'
+
+function greetingFor(date) {
+  const h = date.getHours()
+  if (h < 12) return 'בוקר טוב'
+  if (h < 18) return 'צהריים טובים'
+  return 'ערב טוב'
+}
+
+const isTerminal = (a) => a.status === 'הסתיים' || a.status === 'לא הגיע'
 
 export default function Dashboard() {
   const { requests, appointments, tasks, patientById, therapistById } = useData()
   const { role } = useSession()
+  const navigate = useNavigate()
   const [phoneOpen, setPhoneOpen] = useState(false)
+  // Requests the user has opened this session → "read" (drops the blue dot + count).
+  const [openedIds, setOpenedIds] = useState(() => new Set())
+  const markRead = (id) =>
+    setOpenedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  // "New requests" filter chip. null = off; a Set = the ids captured when the
+  // filter was switched on. Snapshotting keeps rows from vanishing as opening
+  // one marks it read — the table stays stable until the filter is cleared.
+  const [unreadFilter, setUnreadFilter] = useState(null)
 
-  const pending = requests.filter((r) => r.status === 'ממתין')
+  const requestsRef = useRef(null)
+  const tasksRef = useRef(null)
+  const scrollTo = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  const now = new Date()
+
+  // Requests = exceptions awaiting approval, urgent first, then newest.
+  const pending = useMemo(
+    () =>
+      requests
+        .filter((r) => r.status === 'ממתין')
+        .sort(
+          (a, b) =>
+            (b.ai.urgentFlag ? 1 : 0) - (a.ai.urgentFlag ? 1 : 0) || b.createdAt - a.createdAt,
+        ),
+    [requests],
+  )
+  const unreadCount = pending.filter((r) => !openedIds.has(r.id)).length
+  // When the "new" filter is on, show only the snapshotted new requests.
+  const visiblePending = unreadFilter ? pending.filter((r) => unreadFilter.has(r.id)) : pending
+  const toggleUnreadFilter = () =>
+    setUnreadFilter((f) =>
+      f ? null : new Set(pending.filter((r) => !openedIds.has(r.id)).map((r) => r.id)),
+    )
+
+  // Tasks that matter today: due today or overdue, not yet done — overdue first.
+  const todayTasks = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.status !== 'הושלם' && (isToday(t.due) || t.due < now))
+        .sort((a, b) => (a.due < now ? 0 : 1) - (b.due < now ? 0 : 1) || a.due - b.due),
+    [tasks, now],
+  )
+  const overdueCount = todayTasks.filter((t) => t.due < now).length
+
+  // Today's schedule, grouped by start time so parallel appointments (several
+  // therapists at once) share a single time label.
   const todayAppts = useMemo(
     () => appointments.filter((a) => isToday(a.start)).sort((a, b) => a.start - b.start),
     [appointments],
   )
-  const noShowsThisWeek = appointments.filter(
-    (a) => a.status === 'לא הגיע' && isThisWeek(a.start, { weekStartsOn: 0 }),
-  ).length
-  const openTasks = tasks.filter((t) => t.status !== 'הושלם')
+  const todayGroups = useMemo(() => {
+    const map = new Map()
+    for (const a of todayAppts) {
+      const key = a.start.getTime()
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(a)
+    }
+    return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([time, appts]) => ({ time, appts }))
+  }, [todayAppts])
+
+  const nextAppt = todayAppts.find((a) => a.start.getTime() >= now.getTime() && !isTerminal(a))
+  const nextTime = nextAppt ? nextAppt.start.getTime() : null
+  const remaining = todayAppts.filter((a) => !isTerminal(a)).length
 
   return (
     <div className="space-y-6 animate-fade">
-      {/* Page heading */}
+      {/* Greeting + date */}
       <div className="flex items-end justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">מרכז פעילות</h1>
-          <p className="text-slate-500 mt-0.5">
-            שלום {role.label} 👋 הנה מה שדורש את תשומת ליבך היום.
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {greetingFor(now)}, {DEMO_STAFF_NAME}
+        </h1>
         <Badge tone="teal">
-          <Clock size={13} /> {new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
+          <Clock size={13} /> {now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Badge>
       </div>
 
-      {/* KPI row */}
+      {/* Prioritised summary — action tiles keep their colour; context tiles stay neutral. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Kpi label="בקשות ממתינות" value={pending.length} icon={Clock3} tone="teal" delta={pending.length ? 'דורש טיפול' : ''} deltaTone="red" />
-        <Kpi label="תורים היום" value={todayAppts.length} icon={CalendarDays} tone="blue" />
-        <Kpi label="אי-הגעות (השבוע)" value={noShowsThisWeek} icon={AlertTriangle} tone="amber" />
-        <Kpi label="משימות פתוחות" value={openTasks.length} icon={ListTodo} tone="green" />
+        <Kpi
+          label="דורש אישור"
+          value={pending.length}
+          icon={AlertTriangle}
+          tone="red"
+          accent="red"
+          onClick={() => scrollTo(requestsRef)}
+        />
+        <Kpi
+          label="משימות להיום"
+          value={todayTasks.length}
+          delta={overdueCount ? `· ${overdueCount} באיחור` : ''}
+          deltaTone="red"
+          icon={ListTodo}
+          tone="amber"
+          accent="amber"
+          onClick={() => scrollTo(tasksRef)}
+        />
+        <Kpi
+          label="תורים היום"
+          value={todayAppts.length}
+          icon={CalendarDays}
+          tone="slate"
+          onClick={() => navigate('/clinic/calendar')}
+        />
+        <Kpi
+          label="הבא בתור"
+          value={nextAppt ? hhmm(nextAppt.start) : '—'}
+          icon={Clock3}
+          tone="slate"
+          onClick={() => navigate('/clinic/calendar')}
+        />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Requests pipeline */}
-        <Card className="lg:col-span-2 flex flex-col overflow-hidden">
-          {/* Dark header (mockup style) */}
-          <div className="flex items-center justify-between gap-3 bg-ink-900 px-5 py-3.5">
-            <div className="flex items-center gap-2.5">
-              <span className="grid place-items-center h-8 w-8 rounded-lg bg-white/10 text-amber-300 shrink-0">
-                <AlertTriangle size={17} />
-              </span>
-              <h3 className="font-semibold text-white">הפניות ובקשות טלפוניות</h3>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="rounded-full bg-red-500 text-white px-3 py-1 text-xs font-semibold">
-                {pending.length} חדשות
-              </span>
-              {role.canApprove && (
-                <button
-                  onClick={() => setPhoneOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white px-3 h-8 text-sm font-medium transition"
-                >
-                  <Phone size={15} /> בקשה טלפונית
-                </button>
-              )}
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 px-5 pt-2.5">
-            רוב ההזמנות עצמיות וזורמות ישר ליומן — כאן רק מקרים שדורשים מגע אנושי (הפניה דחופה / טלפון)
-          </p>
-          <div className="overflow-x-auto scroll-thin">
-            <div className="min-w-[460px]">
-              {/* Column headers */}
-              <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-xs font-medium text-slate-400">
-                <div className={REQ_COLS.patient}>מטופל</div>
-                <div className={REQ_COLS.visitType}>סוג ביקור</div>
-                <div className={REQ_COLS.received}>התקבלה</div>
-                <div className={REQ_COLS.spacer} />
-                <div className={REQ_COLS.action} />
-                <div className={REQ_COLS.chevron} />
+      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6 items-start">
+        {/* Action column — requests + tasks (what needs my decision) */}
+        <div className="space-y-6 min-w-0">
+          {/* Requests to approve */}
+          <Card ref={requestsRef} className="flex flex-col overflow-hidden scroll-mt-4">
+            <div className="flex items-center justify-between gap-3 bg-ink-900 px-5 py-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span title={QUEUE_HINT} className="inline-flex cursor-help shrink-0 text-slate-400 hover:text-slate-200 transition">
+                  <Info size={15} />
+                </span>
+                <h3 className="font-semibold text-white truncate">בקשות לאישור</h3>
               </div>
-            <div className="max-h-[520px] overflow-y-auto scroll-thin">
-              {pending.length === 0 ? (
-                <Empty icon={CheckCircle2} title="הכול טופל!" hint="אין בקשות ממתינות כרגע" />
-              ) : (
-                pending.map((r) => <RequestRow key={r.id} request={r} canApprove={role.canApprove} />)
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {role.canApprove && (
+                  <button
+                    onClick={() => setPhoneOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white px-3 h-8 text-sm font-medium transition"
+                  >
+                    <Phone size={15} /> בקשה טלפונית
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      </Card>
 
-        {/* Side column — today's appointments + tasks */}
-        <div className="space-y-6">
-          {/* Today's appointments */}
-          <Card className="flex flex-col overflow-hidden">
+            {/* Filter chips — first chip filters the table to new requests only. */}
+            {pending.length > 0 && (unreadCount > 0 || unreadFilter) && (
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                <span className="text-xs text-slate-400 shrink-0">סינון:</span>
+                <button
+                  type="button"
+                  aria-pressed={!!unreadFilter}
+                  onClick={toggleUnreadFilter}
+                  className={clsx(
+                    'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition',
+                    unreadFilter
+                      ? 'bg-blue-600 text-white ring-blue-600 shadow-sm'
+                      : 'bg-white text-blue-700 ring-blue-200 hover:bg-blue-50',
+                  )}
+                >
+                  <span className={clsx('h-1.5 w-1.5 rounded-full', unreadFilter ? 'bg-white' : 'bg-blue-600')} />
+                  {unreadCount} {unreadCount === 1 ? 'חדשה' : 'חדשות'}
+                </button>
+                {unreadFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setUnreadFilter(null)}
+                    className="text-xs text-slate-500 hover:text-slate-700 transition"
+                  >
+                    נקה סינון
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="overflow-x-auto scroll-thin no-gutter">
+              <div className="min-w-[520px]">
+                {/* Column headers */}
+                <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-xs font-medium text-slate-500">
+                  <div className={REQ_COLS.patient}>מטופל</div>
+                  <div className={REQ_COLS.received}>התקבלה</div>
+                  <div className={REQ_COLS.visitType}>סוג ביקור</div>
+                  <div className={REQ_COLS.action} />
+                  <div className={REQ_COLS.chevron} />
+                </div>
+                <div>
+                  {visiblePending.length === 0 ? (
+                    unreadFilter ? (
+                      <Empty icon={CheckCircle2} title="אין בקשות חדשות" hint="כל הבקשות החדשות כבר נקראו" />
+                    ) : (
+                      <Empty icon={CheckCircle2} title="הכול טופל!" hint={QUEUE_HINT} />
+                    )
+                  ) : (
+                    visiblePending.map((r) => (
+                      <RequestRow
+                        key={r.id}
+                        request={r}
+                        canApprove={role.canApprove}
+                        unread={!openedIds.has(r.id)}
+                        onOpen={markRead}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Tasks due today */}
+          <Card ref={tasksRef} className="flex flex-col overflow-hidden scroll-mt-4">
             <CardHeader
               dark
-              title="תורי היום"
-              icon={CalendarDays}
+              title="משימות להיום"
+              icon={ListTodo}
               action={
-                <Link to="/clinic/calendar" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5">
-                  יומן מלא <ArrowLeft size={15} />
+                <Link to="/clinic/tasks" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5">
+                  לכל המשימות <ChevronLeft size={15} />
                 </Link>
               }
             />
-            <div className="px-3 pb-3 space-y-1.5 overflow-y-auto scroll-thin max-h-72">
-              {todayAppts.length === 0 ? (
-                <Empty icon={CalendarDays} title="אין תורים היום" />
+            <div>
+              {todayTasks.length === 0 ? (
+                <Empty icon={CheckCircle2} title="אין משימות להיום" />
               ) : (
-                todayAppts.map((a) => {
-                  const p = patientById[a.patientId]
-                  const t = therapistById[a.therapistId]
+                todayTasks.map((t) => {
+                  const overdue = t.due < now
+                  const dot = overdue
+                    ? 'bg-red-500'
+                    : t.source === 'אוטומציה'
+                      ? 'bg-amber-400'
+                      : 'bg-slate-400'
                   return (
-                    <div key={a.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-slate-50">
-                      <div className="text-center w-10 shrink-0">
-                        <p className="text-sm font-bold text-slate-700 tabular-nums">{hhmm(a.start)}</p>
-                        <p className="text-[10px] text-slate-400">{a.durationMin}′</p>
+                    <div
+                      key={t.id}
+                      className={clsxRow(overdue)}
+                    >
+                      <div className="text-center w-11 shrink-0">
+                        <p className={`text-xs font-semibold tabular-nums ${overdue ? 'text-red-600' : 'text-slate-600'}`}>
+                          {hhmm(t.due)}
+                        </p>
+                        <p className={`text-[10px] ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
+                          {overdue ? 'באיחור' : 'היום'}
+                        </p>
                       </div>
-                      <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
-                        <p className="text-xs text-slate-400 truncate">{a.visitType} · {t.name}</p>
-                      </div>
-                      <AppointmentActions appt={a} compact />
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
+                      <p className="flex-1 text-sm text-slate-800 truncate">{t.title}</p>
+                      {t.source === 'אוטומציה' ? (
+                        <Badge tone="purple">אוטומציה</Badge>
+                      ) : (
+                        <Badge tone="slate">ידני</Badge>
+                      )}
                     </div>
                   )
                 })
               )}
             </div>
           </Card>
-
-          {/* Tasks snapshot */}
-          <Card className="flex flex-col overflow-hidden">
-            <CardHeader
-              dark
-              title="משימות מעקב"
-              icon={ListTodo}
-              action={
-                <Link to="/clinic/tasks" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5">
-                  לוח מלא <ArrowLeft size={15} />
-                </Link>
-              }
-            />
-            <div className="px-3 pb-3 space-y-1.5 overflow-y-auto scroll-thin max-h-56">
-              {openTasks.length === 0 ? (
-                <Empty icon={CheckCircle2} title="אין משימות פתוחות" />
-              ) : (
-                openTasks.slice(0, 5).map((t) => (
-                  <div key={t.id} className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-slate-50">
-                    <span className={`h-2 w-2 rounded-full shrink-0 ${t.status === 'בטיפול' ? 'bg-amber-500' : 'bg-slate-300'}`} />
-                    <p className="flex-1 text-sm text-slate-700 truncate">{t.title}</p>
-                    {t.source === 'אוטומציה' && <Badge tone="purple">אוטומציה</Badge>}
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
         </div>
+
+        {/* Context column — today's timeline (whole page scrolls, no inner scroll) */}
+        <Card className="flex flex-col overflow-hidden min-w-0">
+          <CardHeader
+            dark
+            title="לוח היום"
+            icon={CalendarDays}
+            action={
+              <Link to="/clinic/calendar" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5 whitespace-nowrap">
+                ליומן המלא <ChevronLeft size={15} />
+              </Link>
+            }
+          />
+          <div className="px-4 pt-2 pb-1.5 text-xs text-slate-500 border-b border-slate-100">
+            נותרו {remaining} מתוך {todayAppts.length} תורים
+          </div>
+          <div className="p-1.5 space-y-1">
+            {todayGroups.length === 0 ? (
+              <Empty icon={CalendarDays} title="אין תורים היום" />
+            ) : (
+              todayGroups.map((group) => {
+                const isNext = group.time === nextTime
+                return (
+                  <div
+                    key={group.time}
+                    className={
+                      isNext
+                        ? 'flex gap-2 rounded-xl p-2 bg-sky-50 border-r-2 border-ink-900'
+                        : 'flex gap-2 rounded-xl p-2'
+                    }
+                  >
+                    <div className="w-9 shrink-0 flex flex-col items-center justify-center">
+                      <p className="text-sm font-bold text-slate-700 tabular-nums">{hhmm(group.appts[0].start)}</p>
+                      {isNext && <p className="text-[10px] font-medium text-slate-600">הבא</p>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {group.appts.map((a, i) => {
+                        const p = patientById[a.patientId]
+                        const t = therapistById[a.therapistId]
+                        const terminal = isTerminal(a)
+                        return (
+                          <div
+                            key={a.id}
+                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''} ${terminal ? 'opacity-60' : ''}`}
+                          >
+                            <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                              <p className="text-xs text-slate-500 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
+                            </div>
+                            <AppointmentActions appt={a} compact />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </Card>
       </div>
 
       {phoneOpen && <PhoneRequestDialog onClose={() => setPhoneOpen(false)} />}
     </div>
   )
+}
+
+// Task row layout; overdue rows get a soft red wash + red accent bar.
+function clsxRow(overdue) {
+  return [
+    'flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-100 last:border-0',
+    overdue ? 'bg-red-50/60 border-r-2 border-red-500' : '',
+  ].join(' ')
 }

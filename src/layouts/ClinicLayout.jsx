@@ -7,7 +7,6 @@ import {
   Settings,
   LogOut,
   Plus,
-  Bell,
 } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
@@ -104,7 +103,7 @@ export default function ClinicLayout() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <TopBar role={role} pendingCount={pendingCount} onLogout={handleLogout} nav={nav} />
+        <TopBar role={role} onLogout={handleLogout} nav={nav} />
         <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto">
           <Outlet />
         </main>
@@ -113,7 +112,7 @@ export default function ClinicLayout() {
   )
 }
 
-function TopBar({ role, pendingCount, onLogout, nav }) {
+function TopBar({ role, onLogout, nav }) {
   return (
     <header className="sticky top-0 z-20 bg-canvas/80 backdrop-blur border-b border-slate-200/70">
       <div className="h-16 px-4 sm:px-6 flex items-center gap-3 max-w-[1400px] mx-auto">
@@ -125,12 +124,6 @@ function TopBar({ role, pendingCount, onLogout, nav }) {
           <span className="font-bold text-slate-800">MediTrack</span>
         </div>
         <div className="flex-1" />
-        <button className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-500">
-          <Bell size={20} />
-          {pendingCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-canvas" />
-          )}
-        </button>
         <div className="md:hidden">
           <button onClick={onLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500">
             <LogOut size={20} />

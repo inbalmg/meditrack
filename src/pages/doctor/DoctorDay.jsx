@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { CalendarClock, Sparkles, ArrowLeft, Clock, ListChecks, Stethoscope, CheckCircle2 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
-import { Card, CardHeader, Kpi, Badge, Avatar, Empty } from '../../components/ui.jsx'
+import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
 import { hhmm } from '../../lib/format.js'
 import { classifyRequest } from '../../lib/aiClassifier.js'
 
@@ -23,6 +23,9 @@ export default function DoctorDay() {
 
   // "Next appointment" = first one today not yet finished.
   const next = todayAppts.find((a) => a.status === 'קבוע' || a.status === 'הגיע') || todayAppts[0]
+  // The list below excludes the spotlighted "next" appointment so we don't
+  // repeat the same patient in both the banner and the list.
+  const restAppts = next ? todayAppts.filter((a) => a.id !== next.id) : todayAppts
 
   return (
     <div className="space-y-6 animate-fade">
@@ -45,13 +48,17 @@ export default function DoctorDay() {
 
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader title="התורים שלי היום" icon={CalendarClock}
+          <CardHeader title="התורים שלי היום"
+            subtitle={next ? 'שאר תורי היום · התור הבא מוצג למעלה' : undefined}
+            icon={CalendarClock}
             action={<Link to="/doctor/calendar" className="text-sm text-teal-600 hover:text-teal-700 flex items-center gap-0.5">היומן שלי <ArrowLeft size={15} /></Link>} />
           <div className="px-3 pb-4 space-y-1.5">
             {todayAppts.length === 0 ? (
               <Empty icon={CalendarClock} title="אין תורים היום" />
+            ) : restAppts.length === 0 ? (
+              <Empty icon={CheckCircle2} title="זה התור האחרון להיום" hint="התור הבא מוצג בהדגשה למעלה" />
             ) : (
-              todayAppts.map((a) => {
+              restAppts.map((a) => {
                 const p = patientById[a.patientId]
                 return (
                   <Link key={a.id} to={`/doctor/visit/${a.id}`}
@@ -60,7 +67,6 @@ export default function DoctorDay() {
                       <p className="text-sm font-bold text-slate-700 tabular-nums">{hhmm(a.start)}</p>
                       <p className="text-[10px] text-slate-400">{a.durationMin}′</p>
                     </div>
-                    <Avatar initials={p.name.slice(0, 2)} color="#334155" size={38} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
                       <p className="text-xs text-slate-400 truncate">{a.reason}</p>
@@ -104,34 +110,37 @@ export default function DoctorDay() {
 function NextCard({ appt, patient }) {
   const ai = classifyRequest({ description: appt.reason })
   return (
-    <Card className="p-5 bg-gradient-to-l from-teal-600 to-teal-500 text-white ring-0">
-      <div className="flex items-center gap-2 text-teal-50 text-sm font-medium mb-3">
+    <Card className="p-4 bg-gradient-to-l from-teal-600 to-teal-500 text-white ring-0">
+      <div className="flex items-center gap-2 text-teal-50 text-sm font-medium mb-2">
         <Clock size={16} /> התור הבא
       </div>
-      <div className="flex items-center gap-4 flex-wrap">
-        <Avatar initials={patient.name.slice(0, 2)} color="rgba(255,255,255,0.25)" size={52} />
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
-          <p className="text-xl font-bold">{patient.name}</p>
+          <p className="text-lg font-bold leading-tight">{patient.name}</p>
           <p className="text-teal-50/90 text-sm">{patient.age} · {patient.gender === 'ז' ? 'זכר' : 'נקבה'} · {patient.phone}</p>
         </div>
         <div className="text-left">
-          <p className="text-3xl font-bold tabular-nums">{hhmm(appt.start)}</p>
+          <p className="text-2xl font-bold tabular-nums leading-none">{hhmm(appt.start)}</p>
           <p className="text-teal-50/80 text-sm">{appt.visitType}</p>
         </div>
       </div>
-      <div className="mt-4 pt-4 border-t border-white/20">
-        <p className="text-teal-50/80 text-sm mb-1">סיבת הפנייה:</p>
-        <p className="font-medium">"{appt.reason}"</p>
-        <div className="flex items-center gap-2 mt-3 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-xs text-teal-50"><Sparkles size={13} /> תגיות AI:</span>
-          {ai.tags.map((tag) => (
-            <span key={tag} className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium">{tag}</span>
-          ))}
+      <div className="mt-3 pt-3 border-t border-white/20 flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm">
+            <span className="text-teal-50/80">סיבת הפנייה: </span>
+            <span className="font-medium">"{appt.reason}"</span>
+          </p>
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 text-xs text-teal-50"><Sparkles size={13} /> תגיות AI:</span>
+            {ai.tags.map((tag) => (
+              <span key={tag} className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium">{tag}</span>
+            ))}
+          </div>
         </div>
+        <Link to={`/doctor/visit/${appt.id}`} className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-white text-teal-700 font-medium px-4 h-9 hover:bg-teal-50 transition">
+          פתיחת תיק מטופל <ArrowLeft size={16} />
+        </Link>
       </div>
-      <Link to={`/doctor/visit/${appt.id}`} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-white text-teal-700 font-medium px-4 h-9 hover:bg-teal-50 transition">
-        פתיחת כרטיס ביקור <ArrowLeft size={16} />
-      </Link>
     </Card>
   )
 }

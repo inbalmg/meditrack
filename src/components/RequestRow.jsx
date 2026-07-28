@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Route, CalendarPlus, ChevronDown, Phone, User } from 'lucide-react'
+import { X, Route, CalendarPlus, ChevronDown, ChevronUp, Flame, Phone, User } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Badge, Button } from './ui.jsx'
 import ScheduleDialog from './ScheduleDialog.jsx'
@@ -7,25 +7,37 @@ import { relativeFromNow } from '../lib/format.js'
 import { clsx } from './clsx.js'
 
 // Shared column widths so the header row and every request row line up.
+// Column order (RTL, right→left): patient · received · visitType · action · chevron.
+// "received" sits by the patient on the right; visitType flexes to fill the middle;
+// the action column is widened so "אישור תור" reads as the primary, easy-to-hit CTA.
 export const REQ_COLS = {
-  patient: 'w-36 shrink-0',
-  visitType: 'w-24 shrink-0',
+  patient: 'w-32 shrink-0',
   received: 'w-20 shrink-0',
-  spacer: 'flex-1 min-w-4',
-  action: 'w-44 shrink-0',
-  chevron: 'w-8 shrink-0',
+  visitType: 'flex-1 min-w-0',
+  action: 'w-36 shrink-0',
+  chevron: 'w-6 shrink-0',
 }
 
-// One request rendered as a table row. The row expands to reveal the full
-// details (age, phone, free text, AI routing/rationale/tags). The primary
-// action opens the scheduling dialog; reject lives in the expanded panel.
-export default function RequestRow({ request, canApprove = true }) {
+// One request rendered as a table row. The row is an accordion: it expands to
+// reveal the full details (age, phone, free text, AI routing/rationale/tags),
+// and expanding marks it read (via onOpen). The primary action opens the
+// scheduling dialog; reject lives in the expanded panel. `unread` drives the
+// bold + blue-dot "new" treatment; `ai.urgentFlag` escalates urgent referrals.
+export default function RequestRow({ request, canApprove = true, unread = false, onOpen }) {
   const { patientById, therapistById, approveRequest, rejectRequest } = useData()
   const [expanded, setExpanded] = useState(false)
   const [scheduling, setScheduling] = useState(false)
   const patient = patientById[request.patientId]
   const ai = request.ai
   const routed = therapistById[ai.routedTo]
+  const urgent = !!ai.urgentFlag
+
+  function toggle() {
+    setExpanded((v) => {
+      if (!v && onOpen) onOpen(request.id) // opening → mark read
+      return !v
+    })
+  }
 
   return (
     <div className="border-b border-slate-100 last:border-0">
@@ -33,41 +45,47 @@ export default function RequestRow({ request, canApprove = true }) {
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setExpanded((v) => !v)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setExpanded((v) => !v)}
+        onClick={toggle}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
         className={clsx(
           'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition',
-          expanded ? 'bg-teal-50/40' : 'hover:bg-slate-50',
+          urgent && 'border-r-2 border-red-500',
+          expanded ? 'bg-teal-50/40' : urgent ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50',
         )}
       >
         {/* Patient */}
-        <div className={clsx(REQ_COLS.patient, 'min-w-0')}>
-          <span className="font-bold text-slate-800 truncate block">{patient.name}</span>
-          {request.source && request.source !== 'פורטל' && (
-            <Badge tone={request.source === 'טלפון' ? 'blue' : 'red'}>{request.source}</Badge>
-          )}
+        <div className={clsx(REQ_COLS.patient, 'flex items-center gap-2')}>
+          <span className={clsx('h-2 w-2 rounded-full shrink-0', unread ? 'bg-blue-600' : 'bg-transparent')} />
+          <div className="min-w-0">
+            <span className={clsx('truncate block', unread ? 'font-semibold text-slate-800' : 'font-normal text-slate-600')}>
+              {patient.name}
+            </span>
+            {request.source && request.source !== 'פורטל' && (
+              <Badge tone={request.source === 'טלפון' ? 'blue' : 'red'}>
+                {urgent && <Flame size={11} />} {request.source}
+              </Badge>
+            )}
+          </div>
         </div>
-        {/* Visit type */}
-        <div className={clsx(REQ_COLS.visitType, 'text-sm text-teal-700 truncate')}>{ai.visitType}</div>
-        {/* Received */}
-        <div className={clsx(REQ_COLS.received, 'text-xs text-slate-400 whitespace-nowrap')}>
+        {/* Received — moved right, next to the patient */}
+        <div className={clsx(REQ_COLS.received, 'text-xs text-slate-500 whitespace-nowrap')}>
           {relativeFromNow(request.createdAt)}
         </div>
-        {/* Spacer */}
-        <div className={REQ_COLS.spacer} />
+        {/* Visit type */}
+        <div className={clsx(REQ_COLS.visitType, 'text-sm text-teal-700 whitespace-nowrap')}>{ai.visitType}</div>
         {/* Action */}
         <div className={REQ_COLS.action} onClick={(e) => e.stopPropagation()}>
           {canApprove ? (
-            <Button size="sm" className="w-full" onClick={() => setScheduling(true)}>
-              <CalendarPlus size={15} /> אישור וקביעת תור
+            <Button size="sm" variant={urgent ? 'primary' : 'tealOutline'} className="w-full" onClick={() => setScheduling(true)}>
+              <CalendarPlus size={15} /> אישור תור
             </Button>
           ) : (
-            <span className="text-xs text-slate-400">צפייה בלבד</span>
+            <span className="text-xs text-slate-500">צפייה בלבד</span>
           )}
         </div>
         {/* Expand chevron */}
-        <div className={clsx(REQ_COLS.chevron, 'flex justify-center text-slate-400')}>
-          <ChevronDown size={18} className={clsx('transition-transform', expanded && 'rotate-180')} />
+        <div className={clsx(REQ_COLS.chevron, 'flex justify-center', expanded ? 'text-teal-700' : 'text-slate-400')}>
+          {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
       </div>
 

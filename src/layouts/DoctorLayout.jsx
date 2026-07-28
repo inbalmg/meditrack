@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarClock, CalendarDays, LogOut, Stethoscope, Eye } from 'lucide-react'
+import { CalendarClock, CalendarDays, ListChecks, LogOut, Stethoscope, Eye } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar, Badge } from '../components/ui.jsx'
@@ -14,6 +14,7 @@ export default function DoctorLayout() {
   const nav = [
     { to: '/doctor', end: true, icon: CalendarClock, label: 'היום שלי' },
     { to: '/doctor/calendar', icon: CalendarDays, label: 'היומן שלי' },
+    { to: '/doctor/tasks', icon: ListChecks, label: 'לוח משימות' },
   ]
 
   function handleLogout() {
@@ -34,8 +35,9 @@ export default function DoctorLayout() {
           </div>
         </div>
 
-        <div className="mx-3 mt-4 rounded-xl bg-white/5 px-3 py-2 flex items-center gap-2 text-[12px] text-teal-200">
-          <Eye size={15} /> מצב צפייה בלבד
+        {/* Plain caption — a read-only role indicator, not an interactive control. */}
+        <div className="px-6 mt-4 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+          <Eye size={12} /> מצב צפייה בלבד
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">

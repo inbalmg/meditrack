@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MediTrack · מרכז פעילות — דמו UI חדש</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     MediTrack — "מרכז פעילות" · הצעת UI חדשה (דמו מבודד)
+     פלטה + טוקנים נאמנים ל-src/index.css של האפליקציה.
+     ============================================================ */
+  :root {
+    --teal-50:#f0fdfa; --teal-100:#ccfbf1; --teal-200:#99f6e4; --teal-300:#5eead4;
+    --teal-400:#2dd4bf; --teal-500:#14b8a6; --teal-600:#0d9488; --teal-700:#0f766e;
+    --teal-800:#115e59; --teal-900:#134e4a;
+    --ink-800:#123536; --ink-900:#0c2627; --ink-950:#071a1b;
+    --canvas:#f4f7f7;
+    --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-300:#cbd5e1;
+    --slate-400:#94a3b8; --slate-500:#64748b; --slate-600:#475569; --slate-700:#334155; --slate-800:#1e293b;
+    --amber-100:#fef3c7; --amber-500:#f59e0b; --amber-600:#d97706; --amber-700:#b45309;
+    --red-100:#fee2e2; --red-500:#ef4444; --red-600:#dc2626; --red-700:#b91c1c;
+    --sky-100:#e0f2fe; --sky-600:#0284c7;
+    --emerald-100:#d1fae5; --emerald-500:#10b981; --emerald-600:#059669;
+    --purple-100:#f3e8ff; --purple-600:#9333ea; --blue-600:#2563eb;
+    --shadow-sm:0 1px 2px rgba(12,38,39,.06),0 1px 3px rgba(12,38,39,.05);
+    --shadow-md:0 4px 16px rgba(12,38,39,.08);
+    --shadow-lg:0 12px 32px rgba(12,38,39,.12);
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:var(--canvas); color:#1a2e2e;
+    font-family:'Rubik','Heebo','Segoe UI',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .tabnum { font-variant-numeric:tabular-nums; }
+
+  /* ---------- App shell ---------- */
+  .app { min-height:100%; display:flex; }
+
+  /* Sidebar (right, RTL) */
+  .sidebar {
+    width:250px; flex-shrink:0; background:var(--ink-900); color:var(--slate-300);
+    display:flex; flex-direction:column; position:sticky; top:0; height:100vh;
+  }
+  .brand { display:flex; align-items:center; gap:12px; padding:0 22px; height:64px;
+           border-bottom:1px solid rgba(255,255,255,.06); }
+  .brand-logo { display:grid; place-items:center; height:36px; width:36px; border-radius:10px;
+                background:var(--teal-500); color:#fff; }
+  .brand h1 { font-size:15px; font-weight:700; color:#fff; margin:0; line-height:1.1; }
+  .brand span { font-size:11px; color:var(--teal-400); }
+  .nav { flex:1; padding:16px 12px; display:flex; flex-direction:column; gap:4px; }
+  .nav a { display:flex; align-items:center; gap:12px; border-radius:12px; padding:10px 12px;
+           font-size:14px; font-weight:500; color:var(--slate-300); text-decoration:none;
+           transition:.15s; }
+  .nav a:hover { background:rgba(255,255,255,.05); color:#fff; }
+  .nav a.active { background:var(--teal-500); color:#fff; box-shadow:var(--shadow-sm); }
+  .nav a .lbl { flex:1; }
+  .nav .pill { display:grid; place-items:center; min-width:20px; height:20px; padding:0 5px;
+               border-radius:999px; font-size:11px; font-weight:700; background:rgba(20,184,166,.9); color:#fff; }
+  .nav a.active .pill { background:#fff; color:var(--teal-600); }
+  .sb-user { padding:12px; border-top:1px solid rgba(255,255,255,.06); display:flex; align-items:center; gap:12px; }
+  .avatar { display:grid; place-items:center; border-radius:999px; color:#fff; font-weight:600; flex-shrink:0; }
+  .sb-user .meta { flex:1; min-width:0; }
+  .sb-user .meta p { margin:0; }
+  .sb-user .name { font-size:14px; color:#fff; font-weight:500; }
+  .sb-user .sub { font-size:11px; color:var(--slate-400); }
+  .sb-user button { background:none; border:0; color:var(--slate-400); cursor:pointer; padding:6px;
+                    border-radius:8px; }
+  .sb-user button:hover { background:rgba(255,255,255,.06); color:#fff; }
+
+  /* Main column */
+  .main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .topbar { position:sticky; top:0; z-index:20; height:64px; display:flex; align-items:center; gap:12px;
+            padding:0 28px; background:rgba(244,247,247,.82); backdrop-filter:blur(8px);
+            border-bottom:1px solid rgba(226,232,240,.7); }
+  .searchbox { display:flex; align-items:center; gap:8px; height:38px; padding:0 14px; border-radius:12px;
+               background:#fff; box-shadow:var(--shadow-sm); color:var(--slate-400); width:280px; max-width:38vw; }
+  .searchbox input { border:0; outline:0; background:none; font:inherit; font-size:14px; color:var(--slate-700);
+                     width:100%; }
+  .topbar .spacer { flex:1; }
+  .icon-btn { position:relative; display:grid; place-items:center; height:38px; width:38px; border-radius:12px;
+              background:#fff; box-shadow:var(--shadow-sm); border:0; color:var(--slate-500); cursor:pointer; }
+  .icon-btn:hover { color:var(--teal-600); }
+  .dot-badge { position:absolute; top:8px; inset-inline-end:8px; height:8px; width:8px; border-radius:999px;
+               background:var(--red-500); box-shadow:0 0 0 2px var(--canvas); }
+
+  .content { padding:28px; max-width:1360px; width:100%; margin:0 auto; }
+
+  /* ---------- Hero header ---------- */
+  .hero { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:14px;
+          margin-bottom:22px; }
+  .hero h2 { font-size:26px; font-weight:800; color:var(--slate-800); margin:0; letter-spacing:-.01em; }
+  .status-line { margin:6px 0 0; color:var(--slate-500); font-size:14.5px; display:flex; align-items:center;
+                 gap:8px; flex-wrap:wrap; }
+  .status-line b { color:var(--teal-700); font-weight:600; }
+  .status-sep { color:var(--slate-300); }
+  .date-chip { display:inline-flex; align-items:center; gap:7px; background:var(--teal-100); color:var(--teal-700);
+               font-weight:600; font-size:13px; padding:8px 14px; border-radius:999px; }
+
+  /* ---------- KPI row ---------- */
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+  .kpi { background:#fff; border-radius:18px; padding:18px; box-shadow:var(--shadow-sm);
+         border:1px solid rgba(226,232,240,.7); position:relative; overflow:hidden; }
+  .kpi .row { display:flex; align-items:center; gap:14px; }
+  .kpi .glyph { display:grid; place-items:center; height:46px; width:46px; border-radius:14px; flex-shrink:0; }
+  .kpi .num { font-size:30px; font-weight:800; color:var(--slate-800); line-height:1; }
+  .kpi .lbl { font-size:12.5px; color:var(--slate-400); margin-top:2px; }
+  .kpi .ctx { margin-top:12px; font-size:12px; font-weight:500; display:inline-flex; align-items:center; gap:5px;
+              padding:3px 9px; border-radius:999px; }
+  .kpi.hero-kpi { background:linear-gradient(135deg,#fff, #f0fdfa); border-color:var(--teal-200); }
+  .kpi.hero-kpi::after { content:""; position:absolute; inset-block:0; inset-inline-start:0; width:4px;
+                         background:var(--teal-500); }
+  .g-teal { background:var(--teal-100); color:var(--teal-600); }
+  .g-blue { background:var(--sky-100); color:var(--sky-600); }
+  .g-amber{ background:var(--amber-100); color:var(--amber-600); }
+  .g-green{ background:var(--emerald-100); color:var(--emerald-600); }
+  .ctx-red   { background:var(--red-100); color:var(--red-700); }
+  .ctx-amber { background:var(--amber-100); color:var(--amber-700); }
+  .ctx-green { background:var(--emerald-100); color:var(--emerald-600); }
+  .ctx-slate { background:var(--slate-100); color:var(--slate-500); }
+
+  /* ---------- Main grid ---------- */
+  .grid { display:grid; grid-template-columns:2fr 1fr; gap:22px; align-items:start; }
+  .card { background:#fff; border-radius:20px; box-shadow:var(--shadow-sm); border:1px solid rgba(226,232,240,.6);
+          overflow:hidden; }
+
+  /* Card dark header */
+  .card-head { display:flex; align-items:center; justify-content:space-between; gap:12px;
+               background:var(--ink-900); padding:14px 20px; }
+  .card-head .ttl { display:flex; align-items:center; gap:10px; min-width:0; }
+  .card-head .hicon { display:grid; place-items:center; height:32px; width:32px; border-radius:10px;
+                      background:rgba(255,255,255,.1); flex-shrink:0; }
+  .card-head h3 { color:#fff; font-size:15.5px; font-weight:600; margin:0; }
+  .head-count { background:var(--red-500); color:#fff; font-size:11.5px; font-weight:700; padding:4px 11px;
+                border-radius:999px; }
+  .btn-ghost-d { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.1); color:#fff;
+                 border:0; height:32px; padding:0 12px; border-radius:11px; font:inherit; font-size:13px;
+                 font-weight:500; cursor:pointer; transition:.15s; }
+  .btn-ghost-d:hover { background:rgba(255,255,255,.2); }
+  .head-link { color:var(--teal-300); font-size:13px; text-decoration:none; display:inline-flex; align-items:center;
+               gap:3px; }
+  .head-link:hover { color:var(--teal-200); }
+  .card-note { font-size:12px; color:var(--slate-400); padding:10px 20px 0; line-height:1.5; }
+
+  /* ---------- Request rows ---------- */
+  .req-list { padding:6px; }
+  .req { border-radius:14px; padding:14px 14px 14px 16px; display:grid;
+         grid-template-columns:auto 1fr auto; gap:14px; align-items:center; position:relative;
+         transition:.15s; cursor:pointer; border:1px solid transparent; }
+  .req:hover { background:var(--slate-50); }
+  .req.urgent { background:#fff; border-color:var(--red-100); box-shadow:0 1px 2px rgba(220,38,38,.06); }
+  .req.urgent::before { content:""; position:absolute; inset-block:12px; inset-inline-start:0; width:4px;
+                        border-radius:999px; background:var(--red-500); }
+  .req .who { min-width:0; }
+  .req .nm { font-weight:700; color:var(--slate-800); font-size:15px; }
+  .req .badges { display:flex; gap:6px; margin-top:5px; flex-wrap:wrap; }
+  .req .mid { min-width:0; }
+  .req .route { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--slate-600); }
+  .req .route b { color:var(--slate-800); font-weight:600; }
+  .req .time { font-size:12px; color:var(--slate-400); margin-top:4px; display:flex; align-items:center; gap:5px; }
+  .req .act { display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0; }
+  .badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:2px 9px; font-size:11.5px;
+           font-weight:500; border:1px solid; white-space:nowrap; }
+  .b-red   { background:var(--red-100);   color:var(--red-700);   border-color:#fecaca; }
+  .b-blue  { background:var(--sky-100);   color:#0369a1;          border-color:#bae6fd; }
+  .b-teal  { background:var(--teal-100);  color:var(--teal-700);  border-color:var(--teal-200); }
+  .b-slate { background:var(--slate-100); color:var(--slate-600); border-color:var(--slate-200); }
+  .b-amber { background:var(--amber-100); color:var(--amber-700); border-color:#fde68a; }
+  .btn-primary { display:inline-flex; align-items:center; justify-content:center; gap:7px; background:var(--teal-600);
+                 color:#fff; border:0; height:38px; padding:0 16px; border-radius:12px; font:inherit; font-size:13.5px;
+                 font-weight:600; cursor:pointer; box-shadow:var(--shadow-sm); transition:.15s; white-space:nowrap; }
+  .btn-primary:hover { background:var(--teal-700); }
+  .chev { color:var(--slate-400); transition:transform .2s; }
+  .req.open .chev { transform:rotate(180deg); }
+
+  /* Expanded detail */
+  .req-detail { grid-column:1 / -1; margin-top:4px; }
+  .detail-box { background:var(--slate-50); border:1px solid var(--slate-100); border-radius:14px; padding:16px;
+                display:grid; gap:12px; }
+  .detail-facts { display:flex; flex-wrap:wrap; gap:6px 22px; font-size:13.5px; }
+  .fact { display:inline-flex; align-items:center; gap:6px; }
+  .fact .k { color:var(--slate-400); }
+  .fact .v { color:var(--slate-700); font-weight:600; }
+  .quote { font-size:13.5px; color:var(--slate-700); line-height:1.6; }
+  .quote .q-lbl { font-size:11.5px; color:var(--slate-400); display:block; margin-bottom:2px; }
+  .ai-box { background:var(--teal-50); border:1px solid var(--teal-100); border-radius:12px; padding:12px 14px; }
+  .ai-box .ai-head { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--teal-800);
+                     font-weight:600; margin-bottom:6px; }
+  .ai-box .ai-body { font-size:13px; color:var(--slate-600); line-height:1.55; }
+  .ai-box .ai-tags { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .detail-actions { display:flex; justify-content:flex-end; gap:8px; }
+  .btn-danger { display:inline-flex; align-items:center; gap:6px; background:var(--red-100); color:var(--red-600);
+                border:0; height:34px; padding:0 13px; border-radius:11px; font:inherit; font-size:13px;
+                font-weight:500; cursor:pointer; }
+  .btn-danger:hover { background:#fecaca; }
+
+  /* ---------- Side column ---------- */
+  .side { display:flex; flex-direction:column; gap:22px; }
+
+  /* Timeline */
+  .timeline { padding:8px 18px 16px; }
+  .tl-item { display:grid; grid-template-columns:52px 1fr; gap:12px; position:relative; padding:10px 0; }
+  .tl-item::before { content:""; position:absolute; inset-inline-start:66px; top:0; bottom:0; width:2px;
+                     background:var(--slate-100); }
+  .tl-item:first-child::before { top:50%; }
+  .tl-item:last-child::before { bottom:50%; }
+  .tl-time { text-align:center; }
+  .tl-time .hh { font-size:14px; font-weight:700; color:var(--slate-700); }
+  .tl-time .dur { font-size:10.5px; color:var(--slate-400); }
+  .tl-body { display:flex; align-items:center; gap:11px; background:transparent; border-radius:14px; padding:9px 12px;
+             position:relative; z-index:1; transition:.15s; }
+  .tl-item.next .tl-body { background:var(--teal-50); border:1px solid var(--teal-200); box-shadow:var(--shadow-sm); }
+  .tl-item.done .tl-body { opacity:.6; }
+  .tl-node { position:absolute; inset-inline-start:60px; top:50%; transform:translateY(-50%); height:14px; width:14px;
+             border-radius:999px; background:#fff; border:3px solid var(--slate-300); z-index:2; }
+  .tl-item.done .tl-node { border-color:var(--emerald-500); background:var(--emerald-500); }
+  .tl-item.next .tl-node { border-color:var(--teal-500); box-shadow:0 0 0 4px rgba(20,184,166,.15); }
+  .tl-bar { width:4px; height:34px; border-radius:999px; flex-shrink:0; }
+  .tl-info { min-width:0; flex:1; }
+  .tl-info .pn { font-size:14px; font-weight:600; color:var(--slate-800); }
+  .tl-info .tt { font-size:12px; color:var(--slate-400); }
+  .tl-tag { font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:999px; flex-shrink:0; }
+  .tag-done { background:var(--emerald-100); color:var(--emerald-600); }
+  .tag-next { background:var(--teal-500); color:#fff; }
+  .tag-in   { background:var(--amber-100); color:var(--amber-700); }
+
+  /* "Now" marker */
+  .now-line { display:grid; grid-template-columns:52px 1fr; gap:12px; align-items:center; position:relative;
+              margin:2px 0; }
+  .now-line .nl-time { text-align:center; font-size:11px; font-weight:700; color:var(--red-500); }
+  .now-line .nl-bar { height:2px; background:linear-gradient(90deg,var(--red-500),transparent); position:relative; }
+  .now-line .nl-bar::before { content:""; position:absolute; inset-inline-start:0; top:50%; transform:translateY(-50%);
+                              height:9px; width:9px; border-radius:999px; background:var(--red-500);
+                              box-shadow:0 0 0 4px rgba(239,68,68,.15); }
+
+  /* Tasks */
+  .tasks { padding:6px 12px 14px; display:flex; flex-direction:column; gap:2px; }
+  .task { display:flex; align-items:center; gap:11px; padding:10px 10px; border-radius:12px; transition:.15s; }
+  .task:hover { background:var(--slate-50); }
+  .task .st { height:9px; width:9px; border-radius:999px; flex-shrink:0; }
+  .st-open { background:var(--slate-300); }
+  .st-prog { background:var(--amber-500); }
+  .task .tk-t { flex:1; font-size:13.5px; color:var(--slate-700); overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; }
+  .b-purple { background:var(--purple-100); color:var(--purple-600); border:1px solid #e9d5ff; }
+
+  .card-foot { padding:12px 20px; border-top:1px solid var(--slate-100); }
+
+  svg { display:block; }
+
+  /* Responsive */
+  @media (max-width:1080px){
+    .grid { grid-template-columns:1fr; }
+    .kpis { grid-template-columns:repeat(2,1fr); }
+  }
+  @media (max-width:760px){
+    .sidebar { display:none; }
+    .content { padding:18px; }
+    .kpis { grid-template-columns:1fr 1fr; gap:12px; }
+    .searchbox { display:none; }
+    .req { grid-template-columns:1fr; }
+    .req .act { flex-direction:row; align-items:center; justify-content:space-between; }
+  }
+
+  /* Demo annotation banner */
+  .demo-note { background:linear-gradient(90deg,var(--ink-900),var(--ink-800)); color:#cbd5d5;
+               font-size:12.5px; text-align:center; padding:7px 16px; }
+  .demo-note b { color:var(--teal-300); }
+</style>
+</head>
+<body>
+<div class="demo-note">🎨 <b>דמו מבודד</b> — הצעת UI חדשה למסך "מרכז פעילות" · MediTrack Clinic · פלטת טורקיז רפואי · RTL</div>
+<div class="app">
+
+  <!-- ============ SIDEBAR (right in RTL) ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <div><h1>MediTrack</h1><span>Clinic</span></div>
+    </div>
+    <nav class="nav">
+      <a class="active" href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="lbl">מרכז פעילות</span><span class="pill">2</span></a>
+      <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span class="lbl">יומן הקליניקה</span></a>
+      <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6M9 11l3 3L22 4"/></svg><span class="lbl">לוח משימות</span><span class="pill">3</span></a>
+      <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg><span class="lbl">דוחות ואנליטיקה</span></a>
+      <a href="#"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="lbl">הגדרות</span></a>
+    </nav>
+    <div class="sb-user">
+      <span class="avatar" style="background:#14b8a6;width:36px;height:36px;font-size:13px;">אש</span>
+      <div class="meta"><p class="name">אורית שקד</p><p class="sub">מרפאת שקד · מנהלת</p></div>
+      <button title="יציאה"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="searchbox">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input placeholder="חיפוש מטופל, תור או בקשה…" />
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" title="התראות"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot-badge"></span></button>
+    </header>
+
+    <main class="content">
+      <!-- Hero -->
+      <div class="hero">
+        <div>
+          <h2>מרכז פעילות</h2>
+          <p class="status-line">
+            בוקר טוב אורית 👋
+            <span class="status-sep">·</span>
+            <b>2 בקשות</b> דורשות טיפול (1 דחופה)
+            <span class="status-sep">·</span>
+            התור הבא ב-<b>11:00</b>
+          </p>
+        </div>
+        <span class="date-chip">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span id="today-str">יום שלישי, 28 ביולי</span>
+        </span>
+      </div>
+
+      <!-- KPI row -->
+      <div class="kpis">
+        <div class="kpi hero-kpi">
+          <div class="row">
+            <span class="glyph g-teal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <div><div class="num tabnum">2</div><div class="lbl">בקשות ממתינות</div></div>
+          </div>
+          <span class="ctx ctx-red">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            1 הפניה דחופה
+          </span>
+        </div>
+        <div class="kpi">
+          <div class="row">
+            <span class="glyph g-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+            <div><div class="num tabnum">9</div><div class="lbl">תורים היום</div></div>
+          </div>
+          <span class="ctx ctx-slate">2 הושלמו · 7 מלפנינו</span>
+        </div>
+        <div class="kpi">
+          <div class="row">
+            <span class="glyph g-amber"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+            <div><div class="num tabnum">1</div><div class="lbl">אי-הגעות (השבוע)</div></div>
+          </div>
+          <span class="ctx ctx-green">↓ מתחת ליעד 5%</span>
+        </div>
+        <div class="kpi">
+          <div class="row">
+            <span class="glyph g-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6M9 11l3 3L22 4"/></svg></span>
+            <div><div class="num tabnum">3</div><div class="lbl">משימות פתוחות</div></div>
+          </div>
+          <span class="ctx ctx-amber">1 בטיפול · 2 אוטומטיות</span>
+        </div>
+      </div>
+
+      <!-- Main grid -->
+      <div class="grid">
+
+        <!-- Requests pipeline -->
+        <section class="card">
+          <div class="card-head">
+            <div class="ttl">
+              <span class="hicon" style="color:var(--amber-300,#fcd34d)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fcd34d" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+              <h3>בקשות שדורשות מגע אנושי</h3>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="head-count">2 חדשות</span>
+              <button class="btn-ghost-d"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg> בקשה טלפונית</button>
+            </div>
+          </div>
+          <p class="card-note">רוב ההזמנות עצמיות וזורמות ישר ליומן — כאן מגיעים <b>רק חריגים</b> שדורשים תיאום אנושי (הפניה דחופה שה-AI סימן, או בקשה טלפונית).</p>
+
+          <div class="req-list">
+            <!-- Urgent request -->
+            <div class="req urgent" onclick="toggle(this)">
+              <div class="who">
+                <div class="nm">נועם פרידמן</div>
+                <div class="badges">
+                  <span class="badge b-red"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>הפניה דחופה</span>
+                </div>
+              </div>
+              <div class="mid">
+                <div class="route">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--teal-600)" stroke-width="2"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+                  <span>ניתוב AI: <b>פיזיו — הערכה ראשונית</b> → רועי שקד</span>
+                </div>
+                <div class="time">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                  התקבלה לפני 25 דקות
+                </div>
+              </div>
+              <div class="act">
+                <button class="btn-primary" onclick="event.stopPropagation()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"/></svg>
+                  אישור וקביעת תור
+                </button>
+                <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+              <!-- detail -->
+              <div class="req-detail" style="display:none">
+                <div class="detail-box">
+                  <div class="detail-facts">
+                    <span class="fact"><span class="k">גיל:</span><span class="v">41</span></span>
+                    <span class="fact"><span class="k">טלפון:</span><span class="v tabnum">053-4448899</span></span>
+                    <span class="fact"><span class="k">חלון מועדף:</span><span class="v">בוקר</span></span>
+                  </div>
+                  <div class="quote"><span class="q-lbl">מלל הבקשה</span>"כאב חד ופתאומי בגב אחרי נפילה, קשה מאוד לזוז ומחמיר"</div>
+                  <div class="ai-box">
+                    <div class="ai-head">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2zM9 21h6"/></svg>
+                      הצעת ה-AI (המזכירה מאשרת)
+                    </div>
+                    <div class="ai-body">זוהו מונחי דחיפות ("חד", "מחמיר") → הועלה <b>דגל לתשומת לב</b> ולא נקבע אוטומטית. מומלץ שיבוץ מוקדם להערכת פיזיותרפיה אצל רועי שקד.</div>
+                    <div class="ai-tags">
+                      <span class="badge b-amber">לתשומת לב</span>
+                      <span class="badge b-slate">כאב גב</span>
+                      <span class="badge b-slate">פוסט-טראומה</span>
+                    </div>
+                  </div>
+                  <div class="detail-actions">
+                    <button class="btn-danger" onclick="event.stopPropagation()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>דחיית הבקשה</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Phone request -->
+            <div class="req" onclick="toggle(this)">
+              <div class="who">
+                <div class="nm">תמר אוחיון</div>
+                <div class="badges">
+                  <span class="badge b-blue"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>טלפון</span>
+                </div>
+              </div>
+              <div class="mid">
+                <div class="route">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--teal-600)" stroke-width="2"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+                  <span>ניתוב: <b>דיקור סיני</b> → ד"ר דנה כהן</span>
+                </div>
+                <div class="time">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                  התקבלה לפני שעה וחצי
+                </div>
+              </div>
+              <div class="act">
+                <button class="btn-primary" onclick="event.stopPropagation()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"/></svg>
+                  אישור וקביעת תור
+                </button>
+                <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+              <div class="req-detail" style="display:none">
+                <div class="detail-box">
+                  <div class="detail-facts">
+                    <span class="fact"><span class="k">גיל:</span><span class="v">67</span></span>
+                    <span class="fact"><span class="k">טלפון:</span><span class="v tabnum">050-7778866</span></span>
+                    <span class="fact"><span class="k">חלון מועדף:</span><span class="v">אחר הצהריים</span></span>
+                  </div>
+                  <div class="quote"><span class="q-lbl">מלל הבקשה</span>"התקשרה לקבוע המשך סדרת טיפולי דיקור אצל ד"ר כהן"</div>
+                  <div class="ai-box">
+                    <div class="ai-head">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2zM9 21h6"/></svg>
+                      הצעת ה-AI (המזכירה מאשרת)
+                    </div>
+                    <div class="ai-body">בחירת המטופלת מנצחת — זוהתה בקשה להמשך סדרה אצל ד"ר דנה כהן. ללא דגל דחיפות.</div>
+                    <div class="ai-tags"><span class="badge b-slate">המשך סדרה</span><span class="badge b-slate">דיקור</span></div>
+                  </div>
+                  <div class="detail-actions">
+                    <button class="btn-danger" onclick="event.stopPropagation()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>דחיית הבקשה</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Side column -->
+        <div class="side">
+          <!-- Today timeline -->
+          <section class="card">
+            <div class="card-head">
+              <div class="ttl">
+                <span class="hicon" style="color:var(--teal-300)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+                <h3>ציר היום</h3>
+              </div>
+              <a class="head-link" href="#">יומן מלא <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></a>
+            </div>
+            <div class="timeline">
+              <!-- done -->
+              <div class="tl-item done">
+                <div class="tl-time"><div class="hh tabnum">09:00</div><div class="dur">30′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#0d9488"></span>
+                  <div class="tl-info"><div class="pn">אבי מזרחי</div><div class="tt">פיזיו — טיפול המשך · רועי שקד</div></div>
+                  <span class="tl-tag tag-done">הסתיים</span>
+                </div>
+              </div>
+              <div class="tl-item done">
+                <div class="tl-time"><div class="hh tabnum">09:30</div><div class="dur">45′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#0d9488"></span>
+                  <div class="tl-info"><div class="pn">ליאור שמש</div><div class="tt">פיזיו — הערכה · רועי שקד</div></div>
+                  <span class="tl-tag tag-in">בטיפול</span>
+                </div>
+              </div>
+
+              <!-- NOW marker -->
+              <div class="now-line">
+                <div class="nl-time tabnum">10:24</div>
+                <div class="nl-bar"></div>
+              </div>
+
+              <!-- next -->
+              <div class="tl-item next">
+                <div class="tl-time"><div class="hh tabnum">11:00</div><div class="dur">30′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#2563eb"></span>
+                  <div class="tl-info"><div class="pn">תמר אוחיון</div><div class="tt">דיקור סיני · ד"ר דנה כהן</div></div>
+                  <span class="tl-tag tag-next">התור הבא</span>
+                </div>
+              </div>
+              <div class="tl-item">
+                <div class="tl-time"><div class="hh tabnum">12:00</div><div class="dur">45′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#9333ea"></span>
+                  <div class="tl-info"><div class="pn">שירה גולן</div><div class="tt">עיסוי רפואי · מיכל לוי</div></div>
+                </div>
+              </div>
+              <div class="tl-item">
+                <div class="tl-time"><div class="hh tabnum">13:00</div><div class="dur">45′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#9333ea"></span>
+                  <div class="tl-info"><div class="pn">תמר אוחיון</div><div class="tt">רפלקסולוגיה · מיכל לוי</div></div>
+                </div>
+              </div>
+              <div class="tl-item">
+                <div class="tl-time"><div class="hh tabnum">14:00</div><div class="dur">30′</div></div>
+                <span class="tl-node"></span>
+                <div class="tl-body">
+                  <span class="tl-bar" style="background:#0d9488"></span>
+                  <div class="tl-info"><div class="pn">רותם ברק</div><div class="tt">פיזיו — טיפול המשך · רועי שקד</div></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Tasks -->
+          <section class="card">
+            <div class="card-head">
+              <div class="ttl">
+                <span class="hicon" style="color:var(--teal-300)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="2"><path d="M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6M9 11l3 3L22 4"/></svg></span>
+                <h3>משימות מעקב</h3>
+              </div>
+              <a class="head-link" href="#">לוח מלא <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></a>
+            </div>
+            <div class="tasks">
+              <div class="task">
+                <span class="st st-open"></span>
+                <span class="tk-t">פולו-אפ אי-הגעה — נועם פרידמן</span>
+                <span class="badge b-purple">אוטומציה</span>
+              </div>
+              <div class="task">
+                <span class="st st-prog"></span>
+                <span class="tk-t">בקשת "לא בטוח" ממתינה — שירה גולן</span>
+                <span class="badge b-purple">אוטומציה</span>
+              </div>
+              <div class="task">
+                <span class="st st-open"></span>
+                <span class="tk-t">תזכורת המשך סדרה — תמר אוחיון</span>
+                <span class="badge b-purple">אוטומציה</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  // Expand / collapse a request row to reveal AI routing & details.
+  function toggle(el){
+    var d = el.querySelector('.req-detail');
+    var open = el.classList.toggle('open');
+    d.style.display = open ? 'block' : 'none';
+  }
+  // Live-ish date in the header chip.
+  try {
+    var f = new Intl.DateTimeFormat('he-IL',{weekday:'long',day:'numeric',month:'long'});
+    document.getElementById('today-str').textContent = f.format(new Date());
+  } catch(e){}
+</script>
+</body>
+</html>

@@ -1,9 +1,12 @@
 // Small shadcn-style UI kit (hand-built, no external component lib).
+import { forwardRef } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { clsx } from './clsx.js'
 
-export function Card({ className = '', children, ...rest }) {
+export const Card = forwardRef(function Card({ as: Tag = 'div', className = '', children, ...rest }, ref) {
   return (
-    <div
+    <Tag
+      ref={ref}
       className={clsx(
         'rounded-2xl bg-white ring-1 ring-slate-200/70 shadow-sm',
         className,
@@ -11,9 +14,9 @@ export function Card({ className = '', children, ...rest }) {
       {...rest}
     >
       {children}
-    </div>
+    </Tag>
   )
-}
+})
 
 export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, className = '' }) {
   if (dark) {
@@ -28,7 +31,7 @@ export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, 
           )}
           <div className="min-w-0">
             <h3 className="font-semibold text-white truncate">{title}</h3>
-            {subtitle && <p className="text-xs text-slate-400 truncate">{subtitle}</p>}
+            {subtitle && <p className="text-xs text-slate-300 truncate">{subtitle}</p>}
           </div>
         </div>
         {action}
@@ -45,7 +48,7 @@ export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, 
         )}
         <div className="min-w-0">
           <h3 className="font-semibold text-slate-800 truncate">{title}</h3>
-          {subtitle && <p className="text-xs text-slate-400 truncate">{subtitle}</p>}
+          {subtitle && <p className="text-xs text-slate-500 truncate">{subtitle}</p>}
         </div>
       </div>
       {action}
@@ -82,6 +85,9 @@ const BTN_VARIANTS = {
   soft: 'bg-teal-50 text-teal-700 hover:bg-teal-100',
   ghost: 'text-slate-600 hover:bg-slate-100',
   outline: 'ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50',
+  // Teal-bordered secondary — used for non-urgent CTAs so the full-teal button
+  // stays reserved for urgent actions, while this stays readable (teal-700).
+  tealOutline: 'ring-1 ring-teal-600 text-teal-700 hover:bg-teal-50',
   danger: 'bg-red-50 text-red-600 hover:bg-red-100',
 }
 
@@ -108,18 +114,38 @@ const KPI_TONES = {
   amber: 'bg-amber-100 text-amber-600',
   green: 'bg-emerald-100 text-emerald-600',
   purple: 'bg-purple-100 text-purple-600',
+  red: 'bg-red-100 text-red-600',
+  slate: 'bg-slate-100 text-slate-500',
 }
 
-export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal' }) {
+// Colored ring for the action tiles; the rest stay neutral so color reads as
+// "this needs action" rather than decoration.
+const KPI_ACCENTS = {
+  red: '!ring-red-200',
+  amber: '!ring-amber-200',
+}
+
+// A summary tile. When `onClick` is given it becomes a button that navigates /
+// scrolls to its section, with a chevron affordance centered on the left edge.
+export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick }) {
+  const clickable = typeof onClick === 'function'
   return (
-    <Card className="p-4 flex items-center gap-3.5">
+    <Card
+      as={clickable ? 'button' : undefined}
+      onClick={onClick}
+      className={clsx(
+        'relative p-4 flex items-center gap-3.5 w-full text-right',
+        accent && KPI_ACCENTS[accent],
+        clickable && 'cursor-pointer hover:ring-slate-300 transition',
+      )}
+    >
       {Icon && (
         <span className={clsx('grid place-items-center h-11 w-11 rounded-xl shrink-0', KPI_TONES[tone] || KPI_TONES.teal)}>
           <Icon size={21} />
         </span>
       )}
       <div className="min-w-0">
-        <p className="text-xs text-slate-400 truncate">{label}</p>
+        <p className="text-xs text-slate-500 truncate">{label}</p>
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold text-slate-800 tabular-nums">{value}</span>
           {delta && (
@@ -129,6 +155,9 @@ export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone
           )}
         </div>
       </div>
+      {clickable && (
+        <ChevronDown size={16} className="absolute top-1/2 -translate-y-1/2 left-3 text-slate-400" />
+      )}
     </Card>
   )
 }
@@ -148,8 +177,8 @@ export function Empty({ icon: Icon, title, hint }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 px-6 text-slate-400">
       {Icon && <Icon size={30} className="mb-2 opacity-60" />}
-      <p className="font-medium text-slate-500">{title}</p>
-      {hint && <p className="text-sm mt-0.5">{hint}</p>}
+      <p className="font-medium text-slate-600">{title}</p>
+      {hint && <p className="text-sm mt-0.5 text-slate-500">{hint}</p>}
     </div>
   )
 }
