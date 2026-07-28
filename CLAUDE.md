@@ -6,6 +6,11 @@
 
 > אפיון מלא + מסמכי ההגשה (PDF/DOCX) ותרשימי הזרימה AS-IS/TO-BE (Whimsical):
 > `C:\קורס מיישם AI\פרוייקט גמר\`.
+>
+> **מסמכי הסבר (Word RTL) שמשקפים לוגיקה זו — לעדכן כשהלוגיקה משתנה:**
+> `MediTrack-מנגנון-בקשות-ומשימות.docx` (בקשה vs משימה, 3 מקורות `source`, מחזורי חיים,
+> תפקידים, AI + תרשים זרימת משימה native) · `MediTrack-מודל-אבטחה.docx`. נבנים עם ספריית
+> `docx` npm v9 (`visuallyRightToLeft:true`; תרשימי זרימה = טבלאות+חצים native, לא PNG).
 
 ## מודל המוצר — הזמנה עצמית היברידית
 
@@ -16,6 +21,12 @@
   ישירות (`bookAppointment`, סטטוס "קבוע", **ללא אישור מזכירה**). אורך המשבצת = משך הטיפול.
 - **מסלול משני — "לא בטוח/ה":** תיאור חופשי → `classifyRequest` מציע טיפול+מטפל ומרים
   **דגל דחיפות** (safety-net). בקשה כזו נכנסת ל-`submitRequest` וממתינה לאישור אנושי.
+- **פרטי קשר / טלפון לתזכורות:** שדה טלפון נאסף **בתוך זרימת בקשת התור** (`NewRequest`, שלב
+  "פרטים ליצירת קשר"), והוא היעד לתזכורות (וואטסאפ/SMS). מטופל **קיים** — הטלפון ממולא-מראש
+  מהרשומה וניתן לעריכה; מטופל **חדש** — שם+טלפון ריקים וחובה. בסיום, `commitContact()` יוצר
+  רשומת מטופל (`addPatient`) לחדש או מעדכן טלפון לקיים (`updatePatient`), ורק אז `bookAppointment`/
+  `submitRequest`. המטופל המחובר (`currentPatientId`) הוא **state** ב-store — נקבע בכניסה: מזהה
+  מטופל קיים או `null` למטופל חדש (ראו `Login.jsx`).
 - **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
   עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
 - כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).
@@ -62,12 +73,12 @@ src/
     PhoneRequestDialog.jsx קליטת בקשה טלפונית ע"י המזכירה (source:'טלפון')
     AppointmentActions.jsx check-in/out (הגיע/סיום/לא הגיע), מוגן ב-role.canApprove
     clsx.js
-  layouts/                 ClinicLayout (דסקטופ) · DoctorLayout (צפייה) · PatientLayout (מובייל)
+  layouts/                 ClinicLayout (דסקטופ) · DoctorLayout (צפייה) · PatientLayout (רספונסיבי: טאבים במובייל / סרגל עליון בדסקטופ)
   pages/
-    Login.jsx              שתי כניסות (קליניקה / מטופל) + בחירת תפקיד
+    Login.jsx              שתי כניסות: צוות (3 תפקידים) · מטופל (רשום 'p1' / חדש null → setCurrentPatient)
     clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
     doctor/  DoctorDay · DoctorCalendar · VisitCard   (צפייה בלבד)
-    patient/ NewRequest (הזמנה עצמית רב-שלבית + מסלול "לא בטוח") · MyAppointments (כולל ביטול/שינוי)
+    patient/ NewRequest (הזמנה עצמית רב-שלבית + "לא בטוח" + פרטי קשר/טלפון) · MyAppointments (ביטול/שינוי)
 ```
 
 ## תפקידים (`session.jsx` → `ROLES`)
@@ -77,7 +88,7 @@ src/
 | מזכירות (`secretary`) | `/clinic` | בקשות (חריגים), יומן, משימות, הגדרות · **ללא דוחות** |
 | מנהל/ת (`manager`) | `/clinic` | הכל + דוחות |
 | מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן/המשימות שלו (`therapistId: t1`) |
-| מטופל (`patient`) | `/patient` | הזמנה עצמית + מעקב (מובייל) |
+| מטופל (`patient`) | `/patient` | הזמנה עצמית + מעקב (רספונסיבי — מובייל ודסקטופ) |
 
 `RequireRole` (`App.jsx`) חוסם גישה חוצת-אזור ומפנה ל-`role.home`. שתי כניסות נפרדות.
 
@@ -87,7 +98,8 @@ src/
 - **ביטול:** `cancelAppointment(id)` — מפנה את המשבצת.
 - **מסלול AI:** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id)`.
 - **ניהול טיפולים (Settings):** `addTreatment` / `updateTreatment` / `removeTreatment`.
-- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`.
+- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`, `updatePatient`.
+- **מטופל מחובר:** `currentPatientId` (state) + `setCurrentPatient(id|null)` — נקבע בכניסת המטופל.
 - **סטטוס/משימות:** `setAppointmentStatus` (אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
   `setTaskStatus`, `addTask`.
 - **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
@@ -103,9 +115,35 @@ src/
   input/output schema — ה-UI לא משתנה.
 - **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
 
+## מודל אבטחה — מצב נוכחי ומתוכנן
+
+**היום (דמו):** אין אימות אמיתי. `Login.jsx` — המשתמש בוחר תפקיד/מטופל ידנית; `role` (`session.jsx`)
+ו-`currentPatientId` (`store.jsx`) הם state בזיכרון, מתאפסים ברענון. `RequireRole` (`App.jsx`) חוסם גישה
+חוצת-אזור. `src/lib/supabase.js` = **stub בלבד** (client מ-env vars, לא מחובר ל-Auth/DB).
+
+**מתוכנן ל-Production (עם Supabase) — לעקוב אחריו כשמחברים DB:**
+- **Authentication (Supabase Auth):** מטופל = OTP לטלפון (הטלפון כבר ערוץ התזכורות); צוות
+  (מזכירה/מטפל/מנהל) = Email+סיסמה / Magic Link. JWT session נושא `uid` + `role` + `clinic_id`;
+  Logout מבטל את ה-refresh token. `currentPatientId` יגיע מהסשן המאומת, לא מבחירה ידנית.
+- **RBAC:** תפקיד יחיד per-user ב-App Metadata (לא ניתן לשינוי מהלקוח); 4 התפקידים של `ROLES`; Least Privilege.
+- **Multi-tenant:** כל רשומה נושאת `clinic_id` → בידוד מלא בין קליניקות.
+- **RLS = שכבת האכיפה המרכזית:** מטופל→`patient_id = auth.uid()`; מטפל→`therapist_id = auth.uid()`
+  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד.
+- **Defense in depth:** הגנת ה-Frontend (Route Guards / הסתרת כפתורים) = UX בלבד; האכיפה המחייבת
+  בשרת (JWT + RLS + Edge Functions). מפתחות סוד רק בשרת. עיקרון: *Never trust the client.*
+
+**מסמך אפיון מלא:** `C:\קורס מיישם AI\פרוייקט גמר\MediTrack-מודל-אבטחה.docx` (Word RTL — 5 סעיפים
++ תרשים Security Flow; ממוקד Production עתידי).
+
 ## מוסכמות
 
 - עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`); טקסטים בקוד בעברית — לשמור.
 - צבעים דרך טוקני Tailwind (`teal-*`, `ink-*`, `canvas`) — לא hex ישיר ב-JSX.
 - **state בזיכרון בלבד** — רענון דף מאפס את הסשן (מחזיר ל-login). ניווט אמיתי דרך קישורי SPA, לא URL.
 - כל בעיה שנראית בדפדפן — לתקן בקוד המקור, לא ב-DevTools.
+- **נראות פורטל המטופל (רספונסיבי, `PatientLayout.jsx`):** אותה כתובת, שתי פריסות לפי breakpoint `md`:
+  - **מובייל (`<md`):** כותרת כהה למעלה + **טאבים תחתונים** (2 טאבים), תוכן במסך מלא.
+  - **דסקטופ (`≥md`):** **סרגל ניווט עליון** (לוגו + ניווט אופקי + שלום/יציאה) ותוכן **ממורכז**
+    ב-`max-w-3xl`. כרטיסי התורים ב-`MyAppointments` עוברים ל**רשת 2 טורים** (`sm:grid-cols-2`);
+    טופס `NewRequest` מוגבל ל-`max-w-xl` כדי שלא יתמתח. **אין יותר מסגרת-טלפון.**
+  צד הקליניקה/רופא (`ClinicLayout` סייד-בר ימני / `DoctorLayout`) נפרשים לרוחב דסקטופ מלא (עד 1400px).

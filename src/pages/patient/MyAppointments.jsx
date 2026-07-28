@@ -54,7 +54,7 @@ export default function MyAppointments() {
             <Empty icon={CalendarHeart} title="אין תורים קרובים" hint="שלחו בקשת תור חדשה" />
           </Card>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {upcoming.map((a) => {
               const t = therapistById[a.therapistId]
               return (

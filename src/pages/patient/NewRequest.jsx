@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone,
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge } from '../../components/ui.jsx'
@@ -39,12 +39,42 @@ function buildSlots(date, therapistId, durationMin, appointments) {
   return out
 }
 
+// Israeli mobile number, forgiving of separators (accepts "050-1234567").
+function phoneValid(phone) {
+  const digits = (phone || '').replace(/\D/g, '')
+  return digits.length >= 9 && digits.startsWith('0')
+}
+
 export default function NewRequest() {
   const {
     therapists, treatmentsForTherapist, appointments, currentPatientId,
-    therapistById, treatmentById, bookAppointment, submitRequest,
+    therapistById, treatmentById, patientById,
+    bookAppointment, submitRequest, addPatient, updatePatient, setCurrentPatient,
   } = useData()
   const navigate = useNavigate()
+
+  const me = currentPatientId ? patientById[currentPatientId] : null
+  const isNewPatient = !me
+
+  // Contact details collected within the booking flow. Prefilled from the
+  // patient's record when registered; empty (and required) for a new patient.
+  // The phone is where appointment reminders (WhatsApp/SMS) are sent.
+  const [name, setName] = useState(me?.name ?? '')
+  const [phone, setPhone] = useState(me?.phone ?? '')
+  const contactValid = phoneValid(phone) && (!isNewPatient || name.trim().length > 0)
+
+  // Ensure a patient record exists (creating a new one / saving an edited phone)
+  // and return its id, or null if the contact details are invalid.
+  function commitContact() {
+    if (!contactValid) return null
+    if (isNewPatient) {
+      const p = addPatient({ name: name.trim(), phone: phone.trim() })
+      setCurrentPatient(p.id)
+      return p.id
+    }
+    if (phone.trim() !== (me.phone ?? '')) updatePatient(currentPatientId, { phone: phone.trim() })
+    return currentPatientId
+  }
 
   const [mode, setMode] = useState('book') // 'book' | 'unsure'
   const [therapistId, setTherapistId] = useState('')
@@ -83,9 +113,11 @@ export default function NewRequest() {
     setTreatmentId(id); setSlot(null)
   }
   function confirm() {
-    if (!slot) return
+    if (!slot || !contactValid) return
+    const patientId = commitContact()
+    if (!patientId) return
     const appt = bookAppointment({
-      patientId: currentPatientId,
+      patientId,
       therapistId,
       treatmentId,
       start: set(date, { hours: slot.hour, minutes: slot.minute, seconds: 0, milliseconds: 0 }),
@@ -97,11 +129,11 @@ export default function NewRequest() {
   if (booked) {
     const t = therapistById[booked.therapistId]
     return (
-      <div className="animate-fade space-y-4">
+      <div className="animate-fade space-y-4 max-w-xl mx-auto">
         <Card className="p-6 text-center">
           <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><Check size={32} /></span>
           <h2 className="text-xl font-bold text-slate-800">התור נקבע!</h2>
-          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת לפני התור.</p>
+          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{phone}.</p>
         </Card>
         <Card className="p-5">
           <dl className="space-y-2.5 text-sm">
@@ -121,15 +153,23 @@ export default function NewRequest() {
   // ---------- "Not sure?" AI path ----------
   if (mode === 'unsure') {
     return <UnsurePath
+      isNew={isNewPatient}
+      name={name} setName={setName} phone={phone} setPhone={setPhone}
+      contactValid={contactValid}
       onBack={() => setMode('book')}
       onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
-      onReferred={(desc, tId) => { submitRequest({ patientId: currentPatientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source: 'הפניה דחופה' }); navigate('/patient') }}
+      onReferred={(desc, tId) => {
+        const patientId = commitContact()
+        if (!patientId) return
+        submitRequest({ patientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source: 'הפניה דחופה' })
+        navigate('/patient')
+      }}
     />
   }
 
   // ---------- Primary: self-booking ----------
   return (
-    <div className="animate-fade space-y-5">
+    <div className="animate-fade space-y-5 max-w-xl mx-auto">
       <div>
         <h1 className="text-xl font-bold text-slate-800">קביעת תור</h1>
         <p className="text-slate-500 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
@@ -259,15 +299,61 @@ export default function NewRequest() {
         </Step>
       )}
 
+      {/* Contact details — where reminders are sent; prefilled for a registered
+          patient, empty + required for a new one. Shown alongside the date/time
+          step so the numbering stays contiguous (1→2→3→4). */}
+      {therapistId && treatmentId && (
+        <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
+          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} />
+        </Step>
+      )}
+
       {/* Confirm */}
-      <Button size="lg" className="w-full" disabled={!slot} onClick={confirm}>
+      <Button size="lg" className="w-full" disabled={!slot || !contactValid} onClick={confirm}>
         <Check size={18} /> {slot ? `אישור — יום ${dayName(date)} ${hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}` : 'בחרו מועד'}
       </Button>
     </div>
   )
 }
 
-function UnsurePath({ onBack, onProceed, onReferred }) {
+function ContactFields({ isNew, name, setName, phone, setPhone }) {
+  return (
+    <div className="space-y-3">
+      {isNew && (
+        <div>
+          <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <User size={14} className="text-teal-600" /> שם מלא
+          </label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            placeholder="שם פרטי ומשפחה"
+            className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+      )}
+      <div>
+        <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
+          <Phone size={14} className="text-teal-600" /> מספר טלפון נייד
+        </label>
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          required
+          inputMode="tel"
+          placeholder="050-0000000"
+          className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500"
+        />
+        <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+          <Bell size={12} /> נשלח לכאן תזכורת בוואטסאפ/SMS לפני התור
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function UnsurePath({ isNew, name, setName, phone, setPhone, contactValid, onBack, onProceed, onReferred }) {
   const { therapistById, treatmentById } = useData()
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
@@ -278,7 +364,7 @@ function UnsurePath({ onBack, onProceed, onReferred }) {
   }
 
   return (
-    <form onSubmit={analyze} className="animate-fade space-y-4">
+    <form onSubmit={analyze} className="animate-fade space-y-4 max-w-xl mx-auto">
       <button type="button" onClick={onBack} className="text-sm text-teal-600 flex items-center gap-1"><ChevronLeft size={16} /> חזרה לבחירה ידנית</button>
       <div>
         <h1 className="text-xl font-bold text-slate-800">לא בטוח/ה מה מתאים?</h1>
@@ -307,7 +393,10 @@ function UnsurePath({ onBack, onProceed, onReferred }) {
             <>
               <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
               <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
-              <Button className="w-full mt-4" onClick={() => onReferred(description.trim(), result.routedTo)}>
+              <div className="mt-4">
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} />
+              </div>
+              <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onReferred(description.trim(), result.routedTo)}>
                 שליחת הפנייה למרפאה
               </Button>
             </>

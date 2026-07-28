@@ -6,11 +6,13 @@ import {
   Building2,
   UserCog,
   UserRound,
+  UserPlus,
   ShieldCheck,
   ChevronLeft,
   Plus,
 } from 'lucide-react'
 import { useSession, ROLES } from '../session.jsx'
+import { useData } from '../data/store.jsx'
 import { Button } from '../components/ui.jsx'
 import { clsx } from '../components/clsx.js'
 
@@ -22,12 +24,20 @@ const CLINIC_ROLES = [
 
 export default function Login() {
   const { login } = useSession()
+  const { setCurrentPatient } = useData()
   const navigate = useNavigate()
   const [entrance, setEntrance] = useState(null) // null | 'clinic' | 'patient'
 
   function enter(roleId) {
     login(roleId)
     navigate(ROLES[roleId].home, { replace: true })
+  }
+
+  // Enter the patient portal either as a registered patient (phone on file) or
+  // as a first-time patient (no record yet → phone entered during booking).
+  function enterPatient(patientId) {
+    setCurrentPatient(patientId)
+    enter('patient')
   }
 
   return (
@@ -127,20 +137,36 @@ export default function Login() {
                 <ChevronLeft size={16} /> חזרה
               </button>
               <h2 className="text-2xl font-bold text-slate-800">פורטל מטופלים</h2>
-              <p className="text-slate-500 mt-1 mb-6">כניסה להדגמה כמטופל.ת רשומ.ה</p>
-              <div className="rounded-2xl ring-1 ring-slate-200 p-5 bg-white">
-                <div className="flex items-center gap-3">
-                  <span className="grid place-items-center h-12 w-12 rounded-full bg-teal-100 text-teal-700">
+              <p className="text-slate-500 mt-1 mb-6">בחרו כיצד להיכנס להדגמה</p>
+              <div className="space-y-3">
+                {/* Registered patient — phone already on file (prefilled at booking) */}
+                <button
+                  onClick={() => enterPatient('p1')}
+                  className="group w-full flex items-center gap-4 rounded-2xl ring-1 ring-slate-200 bg-white p-4 text-right hover:ring-teal-400 hover:shadow-md transition"
+                >
+                  <span className="grid place-items-center h-12 w-12 rounded-full bg-teal-100 text-teal-700 group-hover:bg-teal-600 group-hover:text-white transition">
                     <UserRound size={24} />
                   </span>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-800">רותם ברק</p>
-                    <p className="text-sm text-slate-400">050-1234567</p>
+                    <p className="text-sm text-slate-400">מטופל/ת רשומ/ה · 050-1234567</p>
                   </div>
-                </div>
-                <Button className="w-full mt-5" size="lg" onClick={() => enter('patient')}>
-                  כניסה לפורטל
-                </Button>
+                  <ChevronLeft className="text-slate-300 group-hover:text-teal-500" size={20} />
+                </button>
+                {/* First-time patient — no record yet; phone entered during booking */}
+                <button
+                  onClick={() => enterPatient(null)}
+                  className="group w-full flex items-center gap-4 rounded-2xl ring-1 ring-slate-200 bg-white p-4 text-right hover:ring-teal-400 hover:shadow-md transition"
+                >
+                  <span className="grid place-items-center h-12 w-12 rounded-full bg-slate-100 text-slate-500 group-hover:bg-teal-600 group-hover:text-white transition">
+                    <UserPlus size={24} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800">מטופל/ת חדש/ה</p>
+                    <p className="text-sm text-slate-400">פנייה ראשונה · הזנת שם וטלפון בבקשת התור</p>
+                  </div>
+                  <ChevronLeft className="text-slate-300 group-hover:text-teal-500" size={20} />
+                </button>
               </div>
             </>
           )}

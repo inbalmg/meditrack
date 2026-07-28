@@ -4,7 +4,7 @@ import {
   therapists as seedTherapists,
   treatments as seedTreatments,
   patients as seedPatients,
-  currentPatientId,
+  currentPatientId as seedCurrentPatientId,
   seedRequests,
   seedAppointments,
   seedTasks,
@@ -37,6 +37,9 @@ export function DataProvider({ children }) {
   const [therapists, setTherapists] = useState(seedTherapists)
   const [treatments, setTreatments] = useState(seedTreatments)
   const [staff, setStaff] = useState(seedStaff)
+  // The signed-in patient for the mobile portal. Set at login: an existing
+  // patient id ('p1') or `null` for a first-time (new) patient with no record yet.
+  const [currentPatientId, setCurrentPatient] = useState(seedCurrentPatientId)
 
   // Operational settings, editable from the Settings screen.
   const [settings, setSettings] = useState({
@@ -113,6 +116,12 @@ export function DataProvider({ children }) {
     const patient = { id: nextId('p'), name, phone, age, gender }
     setPatients((prev) => [...prev, patient])
     return patient
+  }
+
+  // Update a patient record (e.g. the phone the patient enters/confirms while
+  // booking, so appointment reminders go to the right number).
+  function updatePatient(id, patch) {
+    setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
   }
 
   // PRIMARY path — the patient self-books: provider → treatment → slot. Creates a
@@ -248,6 +257,7 @@ export function DataProvider({ children }) {
     tasks,
     staff,
     settings,
+    setCurrentPatient,
     visitDurations,
     patientById,
     therapistById,
@@ -262,6 +272,7 @@ export function DataProvider({ children }) {
     updateStaff,
     removeStaff,
     addPatient,
+    updatePatient,
     bookAppointment,
     cancelAppointment,
     submitRequest,
