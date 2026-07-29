@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { addDays, isSameDay, set } from 'date-fns'
-import { X, Sparkles, CalendarDays, Clock, Check, Route, ChevronRight, ChevronLeft } from 'lucide-react'
+import { X, Sparkles, CalendarDays, Clock, Check, Route, ChevronRight, ChevronLeft, Stethoscope, Send } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Card, Badge, Button, Avatar } from './ui.jsx'
 import { clsx } from './clsx.js'
@@ -23,11 +23,19 @@ const URGENCY_DATE_OFFSET = { 'דחוף': 0, 'בהקדם': 1, 'רגיל': 2 }
 // can't be double-booked; the patient's preferred window is highlighted, and the
 // default date follows the AI urgency.
 export default function ScheduleDialog({ request, onConfirm, onClose }) {
-  const { appointments, therapists, patientById, visitDurations } = useData()
+  const { appointments, therapists, patientById, visitDurations, treatmentById, treatments, treatmentsForTherapist } = useData()
   const patient = patientById[request.patientId]
   const ai = request.ai
-  // Appointment length comes from Settings (per visit type).
-  const duration = visitDurations[ai.visitType] ?? 20
+
+  // Editable treatment selection (defaults to the AI's suggestion). The reserved
+  // slot length follows the *selected* treatment, so changing it re-grids the
+  // available times. The AI card keeps showing the AI's own recommended duration.
+  const [treatmentId, setTreatmentId] = useState(ai.treatmentId)
+  // Whether to fire the WhatsApp/SMS confirmation to the patient on approval.
+  const [notify, setNotify] = useState(true)
+  const selectedTreatment = treatmentById[treatmentId]
+  const duration = selectedTreatment?.durationMin ?? visitDurations[ai.visitType] ?? 20
+  const aiDuration = visitDurations[ai.visitType] ?? 20
   const [wFrom, wTo] = PREFERRED_WINDOWS[request.preferredTime] || PREFERRED_WINDOWS['גמיש']
 
   // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
@@ -80,6 +88,12 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
   }, [])
 
   const [therapistId, setTherapistId] = useState(ai.routedTo)
+  // Treatments offered by the currently selected therapist (drives the dynamic list).
+  const availableTreatments = useMemo(
+    () => treatmentsForTherapist(therapistId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [therapistId, treatments],
+  )
   const [weekStart, setWeekStart] = useState(() => weekStartOf(recommendedDate))
   const [date, setDate] = useState(recommendedDate)
   const [selected, setSelected] = useState(null) // { hour, minute }
@@ -103,7 +117,17 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
 
   function pickTherapist(id) {
     setTherapistId(id)
+    // Keep the treatment valid: if the new therapist doesn't offer the current
+    // one, fall back to their first available treatment.
+    const offered = treatmentsForTherapist(id)
+    if (!offered.some((t) => t.id === treatmentId)) {
+      setTreatmentId(offered[0]?.id ?? treatmentId)
+    }
     setSelected(null)
+  }
+  function pickTreatment(id) {
+    setTreatmentId(id)
+    setSelected(null) // duration may change → re-grid the slots
   }
   function pickDate(d) {
     setDate(d)
@@ -114,8 +138,10 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
     if (!selected) return
     onConfirm({
       therapistId,
+      treatmentId,
       start: set(date, { hours: selected.hour, minutes: selected.minute, seconds: 0, milliseconds: 0 }),
       durationMin: duration,
+      notify,
     })
   }
 
@@ -143,8 +169,7 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
             <div className="flex flex-wrap items-center gap-1.5 text-sm">
               <Badge tone={URGENCY_TONE[ai.urgency]}>{ai.urgency}</Badge>
               <Badge tone="slate">{ai.visitType}</Badge>
-              <span className="text-slate-500">· משך {duration} דק׳</span>
-              <span className="text-slate-500">· חלון מועדף: <b className="text-slate-700">{request.preferredTime}</b></span>
+              <span className="text-slate-500">· משך {aiDuration} דק׳</span>
             </div>
           </div>
 
@@ -166,6 +191,20 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
                 </button>
               ))}
             </div>
+          </Field>
+
+          {/* Treatment type — list updates dynamically with the selected therapist */}
+          <Field label="סוג טיפול">
+            <select
+              value={treatmentId ?? ''}
+              onChange={(e) => pickTreatment(e.target.value)}
+              className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm text-slate-700 bg-white outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              {availableTreatments.length === 0 && <option value="">— אין טיפולים למטפל זה —</option>}
+              {availableTreatments.map((t) => (
+                <option key={t.id} value={t.id}>{t.name} · {t.durationMin} דק׳</option>
+              ))}
+            </select>
           </Field>
 
           {/* Date */}
@@ -245,15 +284,28 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
-          <span className="text-sm text-slate-500">
-            {selected
-              ? <>נבחר: <b className="text-slate-700">{hhmm(set(date, { hours: selected.hour, minutes: selected.minute }))}</b></>
-              : 'בחרו משבצת פנויה'}
-          </span>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>ביטול</Button>
-            <Button disabled={!selected} onClick={confirm}><Check size={16} /> אישור וקביעת תור</Button>
+        <div className="px-5 py-4 border-t border-slate-100 space-y-3">
+          {/* Notify the patient with an automatic confirmation message */}
+          <label className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={notify}
+              onChange={(e) => setNotify(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 accent-teal-600"
+            />
+            <Send size={15} className="text-teal-600 shrink-0" />
+            שלח הודעת אישור אוטומטית למטופל (WhatsApp/SMS)
+          </label>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-500">
+              {selected
+                ? <>נבחר: <b className="text-slate-700">{hhmm(set(date, { hours: selected.hour, minutes: selected.minute }))}</b></>
+                : 'בחרו משבצת פנויה'}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={onClose}>ביטול</Button>
+              <Button disabled={!selected} onClick={confirm}><Check size={16} /> אישור וקביעת תור</Button>
+            </div>
           </div>
         </div>
       </Card>
@@ -266,6 +318,7 @@ function Field({ label, hint, children }) {
     <div>
       <div className="flex items-baseline gap-2 mb-2">
         <label className="font-medium text-slate-700 text-sm flex items-center gap-1.5">
+          {label === 'סוג טיפול' && <Stethoscope size={15} className="text-teal-600" />}
           {label === 'תאריך' && <CalendarDays size={15} className="text-teal-600" />}
           {label === 'משבצת שעה' && <Clock size={15} className="text-teal-600" />}
           {label}

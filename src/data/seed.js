@@ -11,6 +11,7 @@
 
 import {
   addDays,
+  addHours,
   addMinutes,
   format,
   set,
@@ -20,6 +21,10 @@ import {
 const today = new Date()
 // Anchor the demo week to the current week (Sunday start, Israeli week).
 const weekStart = startOfWeek(today, { weekStartsOn: 0 })
+
+// חלון טיפול למשימה אוטומטית: כמה שעות אחרי הטריגר היא באמת "אמורה" להיסגר.
+// משמש כדי שמשימה אוטומטית לא תיוולד עם `due` ברגע האירוע ותיצבע מיד "באיחור".
+export const AUTO_TASK_DUE_HOURS = 3
 
 function at(dayOffset, hour, minute = 0) {
   return set(addDays(weekStart, dayOffset), {
@@ -208,10 +213,14 @@ function buildFillers() {
 // --- Staff tasks (follow-ups) ---
 // status: פתוח / בטיפול / הושלם
 export const seedTasks = [
-  { id: 'k1', title: 'פולו-אפ אי-הגעה — נועם פרידמן', patientId: 'p4', assigneeId: 't1', due: at(0, 12, 0), status: 'פתוח', source: 'אוטומציה', note: 'לא הגיע לטיפול המשך. ליצור קשר ולתאם מחדש.' },
-  { id: 'k2', title: 'בקשת "לא בטוח" ממתינה — שירה גולן', patientId: 'p3', assigneeId: 't3', due: at(2, 18, 0), status: 'בטיפול', source: 'אוטומציה', note: 'ה-AI הציע עיסוי רפואי — לאשר ולהציע מועד.' },
-  { id: 'k3', title: 'לחזור עם המלצת תרגילים — אבי מזרחי', patientId: 'p2', assigneeId: 't1', due: at(2, 17, 0), status: 'בטיפול', source: 'ידני', note: 'להכין ולשלוח דף תרגילים לבית.' },
-  { id: 'k4', title: 'תזכורת המשך סדרה — תמר אוחיון', patientId: 'p6', assigneeId: 't2', due: at(2, 14, 0), status: 'פתוח', source: 'אוטומציה', note: 'לוודא קביעת הטיפול הבא בסדרת הדיקור.' },
+  // משימות אוטומטיות: due = חלון טיפול קדימה מ"עכשיו", כדי שלא ייטענו כ"באיחור" שגוי.
+  // createdAt/sourceAt מעגנים כל משימה לרגע ההתרחשות (מוצג בשורה כ"מקור") — כדי ששעת
+  // היעד לא תיראה מנותקת. אי-הגעה: sourceAt = שעת התור שלא הגיע (~שעה לפני עכשיו).
+  { id: 'k1', title: 'פולו-אפ אי-הגעה — נועם פרידמן', patientId: 'p4', assigneeId: 't1', createdAt: addHours(today, -1), sourceAt: addHours(today, -1), due: addHours(today, AUTO_TASK_DUE_HOURS - 1), status: 'פתוח', source: 'אוטומציה', note: 'לא הגיע לטיפול המשך. ליצור קשר ולתאם מחדש.' },
+  { id: 'k2', title: 'בקשת "לא בטוח" ממתינה — שירה גולן', patientId: 'p3', assigneeId: 't3', createdAt: addHours(today, -2), due: addHours(today, AUTO_TASK_DUE_HOURS + 2), status: 'בטיפול', source: 'אוטומציה', note: 'ה-AI הציע עיסוי רפואי — לאשר ולהציע מועד.' },
+  // משימה ידנית שכבר עברה את זמנה — משאירה את מצב ה"באיחור" האדום מודגם במערכת.
+  { id: 'k3', title: 'לחזור עם המלצת תרגילים — אבי מזרחי', patientId: 'p2', assigneeId: 't1', createdAt: addHours(today, -4), due: addHours(today, -3), status: 'בטיפול', source: 'ידני', note: 'להכין ולשלוח דף תרגילים לבית.' },
+  { id: 'k4', title: 'תזכורת המשך סדרה — תמר אוחיון', patientId: 'p6', assigneeId: 't2', createdAt: addHours(today, -5), due: addHours(today, AUTO_TASK_DUE_HOURS + 4), status: 'פתוח', source: 'אוטומציה', note: 'לוודא קביעת הטיפול הבא בסדרת הדיקור.' },
 ]
 
 // Helper: format for display

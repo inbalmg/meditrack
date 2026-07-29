@@ -18,7 +18,7 @@ import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
 import RequestRow, { REQ_COLS } from '../../components/RequestRow.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import PhoneRequestDialog from '../../components/PhoneRequestDialog.jsx'
-import { hhmm } from '../../lib/format.js'
+import { hhmm, relativeFromNow } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
 // Demo greeting name — in production this comes from the authenticated user.
@@ -53,7 +53,13 @@ export default function Dashboard() {
 
   const requestsRef = useRef(null)
   const tasksRef = useRef(null)
+  const todayRef = useRef(null)
+  const nextApptRef = useRef(null)
   const scrollTo = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // "הבא בתור" — glide straight to the highlighted next appointment (or the day
+  // board if none is left), centered so it lands in view.
+  const scrollToNext = () =>
+    (nextApptRef.current ?? todayRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
   const now = new Date()
 
@@ -150,7 +156,7 @@ export default function Dashboard() {
           value={nextAppt ? hhmm(nextAppt.start) : '—'}
           icon={Clock3}
           tone="slate"
-          onClick={() => navigate('/clinic/calendar')}
+          onClick={scrollToNext}
         />
       </div>
 
@@ -263,6 +269,14 @@ export default function Dashboard() {
                     : t.source === 'אוטומציה'
                       ? 'bg-amber-400'
                       : 'bg-slate-400'
+                  // Anchor the target time to when the task originated, so "14:10"
+                  // doesn't read as disconnected: for a no-show follow-up show the
+                  // triggering appointment time; otherwise how long ago it opened.
+                  const origin = t.sourceAt
+                    ? `בעקבות אי-הגעה לתור ${hhmm(t.sourceAt)}`
+                    : t.createdAt
+                      ? `נוצר ${relativeFromNow(t.createdAt)}`
+                      : null
                   return (
                     <div
                       key={t.id}
@@ -272,12 +286,17 @@ export default function Dashboard() {
                         <p className={`text-xs font-semibold tabular-nums ${overdue ? 'text-red-600' : 'text-slate-600'}`}>
                           {hhmm(t.due)}
                         </p>
-                        <p className={`text-[10px] ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
-                          {overdue ? 'באיחור' : 'היום'}
-                        </p>
+                        {overdue && <p className="text-[10px] text-red-600">באיחור</p>}
                       </div>
-                      <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
-                      <p className="flex-1 text-sm text-slate-800 truncate">{t.title}</p>
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${dot} mt-1.5 self-start`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-800 truncate">{t.title}</p>
+                        {origin && (
+                          <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
+                            <Clock size={11} className="shrink-0" /> {origin}
+                          </p>
+                        )}
+                      </div>
                       {t.source === 'אוטומציה' ? (
                         <Badge tone="purple">אוטומציה</Badge>
                       ) : (
@@ -292,7 +311,7 @@ export default function Dashboard() {
         </div>
 
         {/* Context column — today's timeline (whole page scrolls, no inner scroll) */}
-        <Card className="flex flex-col overflow-hidden min-w-0">
+        <Card ref={todayRef} className="flex flex-col overflow-hidden min-w-0 scroll-mt-4">
           <CardHeader
             dark
             title="לוח היום"
@@ -315,9 +334,10 @@ export default function Dashboard() {
                 return (
                   <div
                     key={group.time}
+                    ref={isNext ? nextApptRef : undefined}
                     className={
                       isNext
-                        ? 'flex gap-2 rounded-xl p-2 bg-sky-50 border-r-2 border-ink-900'
+                        ? 'flex gap-2 rounded-xl p-2 bg-sky-50 border-r-2 border-ink-900 scroll-mt-20'
                         : 'flex gap-2 rounded-xl p-2'
                     }
                   >

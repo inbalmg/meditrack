@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react'
-import { addDays, set } from 'date-fns'
+import { addDays, addHours, set } from 'date-fns'
 import {
   therapists as seedTherapists,
   treatments as seedTreatments,
@@ -9,13 +9,26 @@ import {
   seedAppointments,
   seedTasks,
   seedStaff,
+  AUTO_TASK_DUE_HOURS,
 } from './seed.js'
 import { classifyRequest } from '../lib/aiClassifier.js'
+import { hhmm, dayName, shortDate } from '../lib/format.js'
 
 const DataContext = createContext(null)
 
 let idCounter = 1000
 const nextId = (prefix) => `${prefix}${++idCounter}`
+
+// Demo trigger for the patient confirmation message (WhatsApp/SMS). Messaging is
+// the real cost center, so it's kept as a swappable stub — like the AI classifier:
+// in production this calls the provider API; here it logs the outbound message.
+function sendAppointmentConfirmation(appt, { patient, therapist }) {
+  if (!patient?.phone) return null
+  const when = `יום ${dayName(appt.start)} ${shortDate(appt.start)} בשעה ${hhmm(appt.start)}`
+  const msg = `שלום ${patient.name}, תורך ל${appt.visitType} עם ${therapist?.name ?? ''} נקבע ל${when}. מרפאת MediTrack — לשינוי/ביטול השיבו להודעה זו.`
+  console.info(`📲 [WhatsApp/SMS → ${patient.phone}] ${msg}`)
+  return msg
+}
 
 // Attach the AI classification to every "not sure?" request once, up front.
 function withClassification(req) {
@@ -192,6 +205,13 @@ export function DataProvider({ children }) {
       reason: req.description,
     }
     setAppointments((prev) => [...prev, appt])
+    // Optionally notify the patient (WhatsApp/SMS) with the scheduled details.
+    if (slot?.notify) {
+      sendAppointmentConfirmation(appt, {
+        patient: patientById[req.patientId],
+        therapist: therapistById[appt.therapistId],
+      })
+    }
     return appt
   }
 
@@ -216,7 +236,11 @@ export function DataProvider({ children }) {
             title: `פולו-אפ אי-הגעה — ${patientById[appt.patientId]?.name ?? ''}`,
             patientId: appt.patientId,
             assigneeId: appt.therapistId,
-            due: new Date(),
+            createdAt: new Date(),
+            // מקור המשימה — שעת התור שלא הגיע, כדי שהיעד לא ינותק מרגע ההתרחשות.
+            sourceAt: appt.start,
+            // חלון טיפול קדימה — שלא תיוולד מיד "באיחור" ברגע האי-הגעה.
+            due: addHours(new Date(), AUTO_TASK_DUE_HOURS),
             status: 'פתוח',
             source: 'אוטומציה',
             note: 'נוצר אוטומטית לאחר אי-הגעה. ליצור קשר ולתאם מחדש.',
@@ -238,6 +262,7 @@ export function DataProvider({ children }) {
         title,
         patientId: patientId || null,
         assigneeId: assigneeId || null,
+        createdAt: new Date(),
         due: due || new Date(),
         status: 'פתוח',
         source: 'ידני',
