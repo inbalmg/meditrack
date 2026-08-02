@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X, Phone, Sparkles, Clock, UserPlus, UserRound, Check } from 'lucide-react'
 import { useData } from '../data/store.jsx'
-import { Card, Button } from './ui.jsx'
+import { Card, Button, RequiredMark } from './ui.jsx'
 import { clsx } from './clsx.js'
 import { VISIT_TYPES } from '../data/seed.js'
 
@@ -76,10 +76,16 @@ export default function PhoneRequestDialog({ onClose }) {
               </select>
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
-                <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="שם מלא"
-                  className="h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
-                <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="טלפון" inputMode="tel"
-                  className="h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">שם מלא <RequiredMark /></span>
+                  <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} required aria-required="true" placeholder="שם פרטי ומשפחה"
+                    className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500">טלפון</span>
+                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="050-0000000" inputMode="tel"
+                    className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
               </div>
             )}
           </Field>

@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import { addDays, isSameDay, subMonths } from 'date-fns'
 import { CalendarDays, Filter, X, Clock, Phone, ChevronRight, ChevronLeft } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
-import { Card, Badge, Avatar } from '../../components/ui.jsx'
+import { useSession } from '../../session.jsx'
+import { Card, Badge, Avatar, Button } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
+import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import {
   hhmm, dayName, shortDate, friendlyDate,
   weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
@@ -231,7 +233,15 @@ export default function Calendar() {
 }
 
 function AppointmentModal({ appt, patient, therapist, onClose }) {
+  const { cancelAppointment } = useData()
+  const { role } = useSession()
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  // Cancelling makes sense for a still-scheduled appointment (not one already
+  // arrived / completed / no-show); gated to staff who can approve.
+  const canCancel = role?.canApprove && appt.status === 'קבוע'
+
   return (
+    <>
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade"
       onClick={onClose}
@@ -272,9 +282,29 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
             <span className="text-sm text-slate-500">סטטוס וסימון:</span>
             <AppointmentActions appt={appt} size="md" />
           </div>
+
+          {canCancel && (
+            <div className="mt-3 flex justify-end">
+              <Button variant="danger" size="sm" onClick={() => setConfirmCancel(true)}>
+                <X size={14} /> ביטול תור
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
     </div>
+
+    {confirmCancel && (
+      <ConfirmDialog
+        title="ביטול התור?"
+        message={`${patient.name} · ${appt.visitType} · ${friendlyDate(appt.start)} בשעה ${hhmm(appt.start)}. פעולה זו אינה ניתנת לביטול.`}
+        confirmLabel="כן, בטל/י תור"
+        cancelLabel="חזרה"
+        onConfirm={() => { cancelAppointment(appt.id); onClose() }}
+        onClose={() => setConfirmCancel(false)}
+      />
+    )}
+    </>
   )
 }
 

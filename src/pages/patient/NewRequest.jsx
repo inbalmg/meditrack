@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell,
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
-import { Card, Button, Badge } from '../../components/ui.jsx'
+import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
 import {
   dayName, shortDate, hhmm,
@@ -50,8 +50,19 @@ export default function NewRequest() {
     therapists, treatmentsForTherapist, appointments, currentPatientId,
     therapistById, treatmentById, patientById,
     bookAppointment, submitRequest, addPatient, updatePatient, setCurrentPatient,
+    cancelAppointment,
   } = useData()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Reschedule: MyAppointments passes the appointment id via router state. We
+  // prefill its provider/treatment and cancel the original once the new slot is
+  // booked — so "שינוי מועד" moves the appointment instead of adding a second one.
+  const rescheduleId = location.state?.rescheduleId ?? null
+  const rescheduling = useMemo(
+    () => (rescheduleId ? appointments.find((a) => a.id === rescheduleId) : null),
+    [rescheduleId, appointments],
+  )
 
   const me = currentPatientId ? patientById[currentPatientId] : null
   const isNewPatient = !me
@@ -77,8 +88,8 @@ export default function NewRequest() {
   }
 
   const [mode, setMode] = useState('book') // 'book' | 'unsure'
-  const [therapistId, setTherapistId] = useState('')
-  const [treatmentId, setTreatmentId] = useState('')
+  const [therapistId, setTherapistId] = useState(rescheduling?.therapistId ?? '')
+  const [treatmentId, setTreatmentId] = useState(rescheduling?.treatmentId ?? '')
   // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
   const firstDay = useMemo(() => firstBookingDay(), [])
   const thisWeekStart = useMemo(() => weekStartOf(firstDay), [firstDay])
@@ -122,6 +133,8 @@ export default function NewRequest() {
       treatmentId,
       start: set(date, { hours: slot.hour, minutes: slot.minute, seconds: 0, milliseconds: 0 }),
     })
+    // Reschedule = move: drop the original only after the new one is booked.
+    if (rescheduleId) cancelAppointment(rescheduleId)
     setBooked(appt)
   }
 
@@ -171,9 +184,16 @@ export default function NewRequest() {
   return (
     <div className="animate-fade space-y-5 max-w-xl mx-auto">
       <div>
-        <h1 className="text-xl font-bold text-slate-800">קביעת תור</h1>
+        <h1 className="text-xl font-bold text-slate-800">{rescheduling ? 'שינוי מועד' : 'קביעת תור'}</h1>
         <p className="text-slate-500 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
       </div>
+
+      {rescheduling && (
+        <div className="flex items-start gap-2.5 rounded-xl ring-1 ring-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+          <CalendarClock size={16} className="mt-0.5 shrink-0" />
+          <span>שינוי מועד לתור <span className="font-medium">{rescheduling.visitType}</span> — התור הקודם יבוטל אוטומטית לאחר קביעת המועד החדש.</span>
+        </div>
+      )}
 
       {/* Not-sure entry */}
       <button
@@ -322,12 +342,13 @@ function ContactFields({ isNew, name, setName, phone, setPhone }) {
       {isNew && (
         <div>
           <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
-            <User size={14} className="text-teal-600" /> שם מלא
+            <User size={14} className="text-teal-600" /> שם מלא <RequiredMark />
           </label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
+            aria-required="true"
             placeholder="שם פרטי ומשפחה"
             className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
           />
@@ -335,12 +356,13 @@ function ContactFields({ isNew, name, setName, phone, setPhone }) {
       )}
       <div>
         <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
-          <Phone size={14} className="text-teal-600" /> מספר טלפון נייד
+          <Phone size={14} className="text-teal-600" /> מספר טלפון נייד <RequiredMark />
         </label>
         <input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           required
+          aria-required="true"
           inputMode="tel"
           placeholder="050-0000000"
           className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500"

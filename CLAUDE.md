@@ -1,3 +1,13 @@
+## Project Context Maintenance
+Keep this file as the single source of truth for project context.
+Update only permanent decisions:
+• Architecture.
+• Core features.
+• Data model.
+• Major technology choices.
+Do not add temporary details, bug fixes, styling changes, or session history.
+Replace outdated information instead of appending.
+
 # MediTrack Clinic
 
 פרויקט גמר · קורס "מיישם AI" (2026). דמו קליקבילי (frontend-first) בעברית מלאה (RTL)

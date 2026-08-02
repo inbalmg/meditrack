@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarHeart, Bell, FilePlus2, Clock, Check, X, Hourglass, MapPin } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Empty } from '../../components/ui.jsx'
+import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { hhmm, friendlyDate, relativeFromNow } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
@@ -14,6 +15,9 @@ const REQ_STATUS = {
 
 export default function MyAppointments() {
   const { requests, appointments, currentPatientId, therapistById, settings, cancelAppointment } = useData()
+
+  // Appointment pending cancel confirmation (null = no dialog open).
+  const [confirmCancel, setConfirmCancel] = useState(null)
 
   const myRequests = requests.filter((r) => r.patientId === currentPatientId)
   const lastRequest = myRequests[0] // newest first
@@ -80,10 +84,10 @@ export default function MyAppointments() {
                       <MapPin size={13} /> מרפאת שקד · רח׳ הרצל 12, מרכז
                     </div>
                     <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
-                      <Link to="/patient/new" className="flex-1">
+                      <Link to="/patient/new" state={{ rescheduleId: a.id }} className="flex-1">
                         <Button variant="soft" size="sm" className="w-full">שינוי מועד</Button>
                       </Link>
-                      <Button variant="ghost" size="sm" onClick={() => cancelAppointment(a.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmCancel(a)}>
                         <X size={14} /> ביטול תור
                       </Button>
                     </div>
@@ -114,6 +118,17 @@ export default function MyAppointments() {
       <Link to="/patient/new" className="block">
         <Button size="lg" className="w-full"><FilePlus2 size={18} /> בקשת תור חדש</Button>
       </Link>
+
+      {confirmCancel && (
+        <ConfirmDialog
+          title="ביטול התור?"
+          message={`${confirmCancel.visitType} · ${friendlyDate(confirmCancel.start)} בשעה ${hhmm(confirmCancel.start)}. פעולה זו אינה ניתנת לביטול.`}
+          confirmLabel="כן, בטל/י תור"
+          cancelLabel="חזרה"
+          onConfirm={() => { cancelAppointment(confirmCancel.id); setConfirmCancel(null) }}
+          onClose={() => setConfirmCancel(null)}
+        />
+      )}
     </div>
   )
 }

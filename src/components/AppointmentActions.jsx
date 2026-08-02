@@ -24,11 +24,15 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
     return <Badge tone={STATUS_TONE[appt.status]}>{appt.status}</Badge>
   }
 
+  // Compact rows show icon-only buttons; use the square `icon` size so the tap
+  // target stays comfortable (h-9 w-9) instead of a cramped padded button.
+  const btnSize = compact ? 'icon' : size
+
   if (appt.status === 'הגיע') {
     return (
       <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
         <Badge tone="teal"><Check size={12} /> הגיע</Badge>
-        <Button size={size} className={compact ? 'px-2' : ''} title="סיום ביקור"
+        <Button size={btnSize} title="סיום ביקור"
           onClick={() => setAppointmentStatus(appt.id, 'הסתיים')}>
           <CheckCheck size={15} /> {!compact && 'סיום ביקור'}
         </Button>
@@ -42,16 +46,16 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
     : 'סימון אי-הגעה אוטומטי כבוי בהגדרות — סימון ידני בלבד'
   return (
     <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
-      <Button variant="soft" size={size} className={compact ? 'px-2' : ''} title="הגיע"
+      <Button variant="soft" size={btnSize} title="הגיע"
         onClick={() => setAppointmentStatus(appt.id, 'הגיע')}>
         <LogIn size={15} /> {!compact && 'הגיע'}
       </Button>
       <Button
         variant="ghost"
-        size={size}
+        size={btnSize}
         onClick={() => setAppointmentStatus(appt.id, 'לא הגיע')}
         title={compact ? 'לא הגיע' : noShowTitle}
-        className={`text-red-500 hover:bg-red-50 ${compact ? 'px-2' : ''}`}
+        className="text-red-500 hover:bg-red-50"
       >
         <UserX size={15} /> {!compact && 'לא הגיע'}
       </Button>

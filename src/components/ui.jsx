@@ -92,7 +92,8 @@ const BTN_VARIANTS = {
 }
 
 export function Button({ variant = 'primary', size = 'md', className = '', children, ...rest }) {
-  const sizes = { sm: 'h-8 px-3 text-sm', md: 'h-9 px-4 text-sm', lg: 'h-11 px-5' }
+  // `icon` — a square, comfortable tap target for icon-only buttons (compact rows).
+  const sizes = { sm: 'h-8 px-3 text-sm', md: 'h-9 px-4 text-sm', lg: 'h-11 px-5', icon: 'h-9 w-9 text-sm' }
   return (
     <button
       className={clsx(
@@ -127,27 +128,28 @@ const KPI_ACCENTS = {
 
 // A summary tile. When `onClick` is given it becomes a button that navigates /
 // scrolls to its section, with a chevron affordance centered on the left edge.
-export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick }) {
+export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick, compact = false }) {
   const clickable = typeof onClick === 'function'
   return (
     <Card
       as={clickable ? 'button' : undefined}
       onClick={onClick}
       className={clsx(
-        'relative p-4 flex items-center gap-3.5 w-full text-right',
+        'relative flex items-center w-full text-right',
+        compact ? 'p-2.5 gap-3' : 'p-4 gap-3.5',
         accent && KPI_ACCENTS[accent],
         clickable && 'cursor-pointer hover:ring-slate-300 transition',
       )}
     >
       {Icon && (
-        <span className={clsx('grid place-items-center h-11 w-11 rounded-xl shrink-0', KPI_TONES[tone] || KPI_TONES.teal)}>
-          <Icon size={21} />
+        <span className={clsx('grid place-items-center rounded-xl shrink-0', compact ? 'h-9 w-9' : 'h-11 w-11', KPI_TONES[tone] || KPI_TONES.teal)}>
+          <Icon size={compact ? 18 : 21} />
         </span>
       )}
       <div className="min-w-0">
         <p className="text-xs text-slate-500 truncate">{label}</p>
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-slate-800 tabular-nums">{value}</span>
+          <span className={clsx('font-bold text-slate-800 tabular-nums', compact ? 'text-xl' : 'text-2xl')}>{value}</span>
           {delta && (
             <span className={clsx('text-xs font-medium', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
               {delta}
@@ -170,6 +172,14 @@ export function Avatar({ initials, color = '#0d9488', size = 36 }) {
     >
       {initials}
     </span>
+  )
+}
+
+// Clear "mandatory field" marker: a red asterisk with an accessible label,
+// placed next to a form field's label so required fields read at a glance.
+export function RequiredMark({ className = '' }) {
+  return (
+    <span className={clsx('text-rose-500', className)} aria-label="שדה חובה" title="שדה חובה">*</span>
   )
 }
 

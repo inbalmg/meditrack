@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Route, CalendarPlus, ChevronDown, ChevronUp, Flame, Phone, User } from 'lucide-react'
+import { X, Route, CalendarPlus, ChevronDown, ChevronUp, Phone, User } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Badge, Button } from './ui.jsx'
 import ScheduleDialog from './ScheduleDialog.jsx'
@@ -9,7 +9,7 @@ import { clsx } from './clsx.js'
 // Shared column widths so the header row and every request row line up.
 // Column order (RTL, right→left): patient · received · visitType · action · chevron.
 // "received" sits by the patient on the right; visitType flexes to fill the middle;
-// the action column is widened so "אישור תור" reads as the primary, easy-to-hit CTA.
+// the action column is widened so "טפל בבקשה" reads as the primary, easy-to-hit CTA.
 export const REQ_COLS = {
   patient: 'w-32 shrink-0',
   received: 'w-20 shrink-0',
@@ -62,13 +62,13 @@ export default function RequestRow({ request, canApprove = true, unread = false,
             </span>
             {request.source && request.source !== 'פורטל' && (
               <Badge tone={request.source === 'טלפון' ? 'blue' : 'red'}>
-                {urgent && <Flame size={11} />} {request.source}
+                {request.source}
               </Badge>
             )}
           </div>
         </div>
         {/* Received — moved right, next to the patient */}
-        <div className={clsx(REQ_COLS.received, 'text-xs text-slate-500 whitespace-nowrap')}>
+        <div className={clsx(REQ_COLS.received, 'text-xs text-slate-600 whitespace-nowrap')}>
           {relativeFromNow(request.createdAt)}
         </div>
         {/* Visit type */}
@@ -77,7 +77,7 @@ export default function RequestRow({ request, canApprove = true, unread = false,
         <div className={REQ_COLS.action} onClick={(e) => e.stopPropagation()}>
           {canApprove ? (
             <Button size="sm" variant={urgent ? 'primary' : 'tealOutline'} className="w-full" onClick={() => setScheduling(true)}>
-              <CalendarPlus size={15} /> אישור תור
+              <CalendarPlus size={15} /> טפל בבקשה
             </Button>
           ) : (
             <span className="text-xs text-slate-500">צפייה בלבד</span>
@@ -100,7 +100,7 @@ export default function RequestRow({ request, canApprove = true, unread = false,
             </div>
 
             <div>
-              <p className="text-xs text-slate-400 mb-0.5">מלל הבקשה</p>
+              <p className="text-xs text-slate-500 mb-0.5">מלל הבקשה</p>
               <p className="text-sm text-slate-700 leading-relaxed">"{request.description}"</p>
             </div>
 
@@ -138,8 +138,8 @@ export default function RequestRow({ request, canApprove = true, unread = false,
 function Detail({ icon: Icon, label, children }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      {Icon && <Icon size={13} className="text-slate-400" />}
-      <span className="text-slate-400">{label}:</span>
+      {Icon && <Icon size={13} className="text-slate-500" />}
+      <span className="text-slate-500">{label}:</span>
       <span className="font-medium text-slate-700">{children}</span>
     </span>
   )

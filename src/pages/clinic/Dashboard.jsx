@@ -7,9 +7,11 @@ import {
   ListTodo,
   AlertTriangle,
   ChevronLeft,
+  ChevronDown,
   CheckCircle2,
   Clock,
   Phone,
+  Plus,
   Info,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
@@ -26,13 +28,26 @@ const DEMO_STAFF_NAME = 'מיכל'
 // One-line onboarding explanation of why this queue is short (exceptions only).
 // Lives in the header info tooltip + the empty state instead of a fixed paragraph.
 const QUEUE_HINT =
-  'רוב הבקשות עצמיות ומשובצות ישר ביומן — כאן רק מקרים שדורשים טיפול אנושי (הפניה דחופה / טלפון)'
+  'רוב הבקשות עצמיות ומשובצות אוטומטית ביומן — כאן רק מקרים שדורשים טיפול אנושי (הפניה דחופה/טלפון)'
 
 function greetingFor(date) {
   const h = date.getHours()
   if (h < 12) return 'בוקר טוב'
   if (h < 18) return 'צהריים טובים'
   return 'ערב טוב'
+}
+
+// ריבוי בעברית: n=1 → הצורה המלאה ליחיד; אחרת "N <רבים>".
+function plural(n, one, many) {
+  return n === 1 ? one : `${n} ${many}`
+}
+
+// שורת סיכום טריאז' לברכה — רק פסוקיות רלוונטיות (בקשות/דחוף מוצגות רק אם >0).
+function buildSummary({ appts, pending, urgent }) {
+  const parts = [appts === 0 ? 'אין תורים היום' : plural(appts, 'תור אחד היום', 'תורים היום')]
+  if (pending > 0) parts.push(plural(pending, 'בקשה אחת ממתינה', 'בקשות ממתינות'))
+  if (urgent > 0) parts.push(plural(urgent, 'משימה דחופה אחת', 'משימות דחופות'))
+  return parts.join(' · ')
 }
 
 const isTerminal = (a) => a.status === 'הסתיים' || a.status === 'לא הגיע'
@@ -110,23 +125,32 @@ export default function Dashboard() {
 
   const nextAppt = todayAppts.find((a) => a.start.getTime() >= now.getTime() && !isTerminal(a))
   const nextTime = nextAppt ? nextAppt.start.getTime() : null
-  const remaining = todayAppts.filter((a) => !isTerminal(a)).length
+  // "עבר" = כבר טופל (הסתיים/לא הגיע) או שהשעה שלו כבר חלפה. נותרו = רק תורים עתידיים פעילים.
+  const isPast = (a) => isTerminal(a) || a.start.getTime() < now.getTime()
+  const remaining = todayAppts.filter((a) => !isPast(a)).length
 
   return (
     <div className="space-y-6 animate-fade">
-      {/* Greeting + date */}
-      <div className="flex items-end justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-slate-800">
-          {greetingFor(now)}, {DEMO_STAFF_NAME}
-        </h1>
+      {/* Greeting + triage summary + date */}
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-800">
+            {greetingFor(now)}, {DEMO_STAFF_NAME}
+          </h1>
+          <p className="text-sm text-slate-600 mt-1">
+            {buildSummary({ appts: todayAppts.length, pending: pending.length, urgent: overdueCount })}
+          </p>
+        </div>
         <Badge tone="teal">
           <Clock size={13} /> {now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Badge>
       </div>
 
+
       {/* Prioritised summary — action tiles keep their colour; context tiles stay neutral. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Kpi
+          compact
           label="דורש אישור"
           value={pending.length}
           icon={AlertTriangle}
@@ -135,6 +159,7 @@ export default function Dashboard() {
           onClick={() => scrollTo(requestsRef)}
         />
         <Kpi
+          compact
           label="משימות להיום"
           value={todayTasks.length}
           delta={overdueCount ? `· ${overdueCount} באיחור` : ''}
@@ -145,6 +170,7 @@ export default function Dashboard() {
           onClick={() => scrollTo(tasksRef)}
         />
         <Kpi
+          compact
           label="תורים היום"
           value={todayAppts.length}
           icon={CalendarDays}
@@ -152,6 +178,7 @@ export default function Dashboard() {
           onClick={() => navigate('/clinic/calendar')}
         />
         <Kpi
+          compact
           label="הבא בתור"
           value={nextAppt ? hhmm(nextAppt.start) : '—'}
           icon={Clock3}
@@ -170,49 +197,39 @@ export default function Dashboard() {
                 <span title={QUEUE_HINT} className="inline-flex cursor-help shrink-0 text-slate-400 hover:text-slate-200 transition">
                   <Info size={15} />
                 </span>
-                <h3 className="font-semibold text-white truncate">בקשות לאישור</h3>
+                <h3 className="font-semibold text-white truncate">בקשות הדורשות טיפול</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* Filter pill — toggles the table to new requests only (Chevron flips when active) */}
+                {pending.length > 0 && (unreadCount > 0 || unreadFilter) && (
+                  <button
+                    type="button"
+                    aria-pressed={!!unreadFilter}
+                    onClick={toggleUnreadFilter}
+                    title={unreadFilter ? 'הצג את כל הבקשות' : 'סנן לבקשות חדשות בלבד'}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full px-3 h-8 text-sm font-medium ring-1 transition',
+                      unreadFilter
+                        ? 'bg-blue-600 text-white ring-blue-500 hover:bg-blue-700'
+                        : 'bg-white/10 text-white ring-white/15 hover:bg-white/20',
+                    )}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-white shrink-0" />
+                    {unreadCount} {unreadCount === 1 ? 'חדשה' : 'חדשות'}
+                    <ChevronDown size={15} className={clsx('transition-transform', unreadFilter && 'rotate-180')} />
+                  </button>
+                )}
                 {role.canApprove && (
                   <button
                     onClick={() => setPhoneOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white px-3 h-8 text-sm font-medium transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/15 px-3 h-8 text-sm font-medium transition"
                   >
-                    <Phone size={15} /> בקשה טלפונית
+                    <Plus size={15} /> <Phone size={15} /> בקשה טלפונית
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Filter chips — first chip filters the table to new requests only. */}
-            {pending.length > 0 && (unreadCount > 0 || unreadFilter) && (
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
-                <span className="text-xs text-slate-400 shrink-0">סינון:</span>
-                <button
-                  type="button"
-                  aria-pressed={!!unreadFilter}
-                  onClick={toggleUnreadFilter}
-                  className={clsx(
-                    'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition',
-                    unreadFilter
-                      ? 'bg-blue-600 text-white ring-blue-600 shadow-sm'
-                      : 'bg-white text-blue-700 ring-blue-200 hover:bg-blue-50',
-                  )}
-                >
-                  <span className={clsx('h-1.5 w-1.5 rounded-full', unreadFilter ? 'bg-white' : 'bg-blue-600')} />
-                  {unreadCount} {unreadCount === 1 ? 'חדשה' : 'חדשות'}
-                </button>
-                {unreadFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setUnreadFilter(null)}
-                    className="text-xs text-slate-500 hover:text-slate-700 transition"
-                  >
-                    נקה סינון
-                  </button>
-                )}
-              </div>
-            )}
             <div className="overflow-x-auto scroll-thin no-gutter">
               <div className="min-w-[520px]">
                 {/* Column headers */}
@@ -292,7 +309,7 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-slate-800 truncate">{t.title}</p>
                         {origin && (
-                          <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
+                          <p className="text-[11px] text-slate-500 truncate flex items-center gap-1">
                             <Clock size={11} className="shrink-0" /> {origin}
                           </p>
                         )}
@@ -322,8 +339,12 @@ export default function Dashboard() {
               </Link>
             }
           />
-          <div className="px-4 pt-2 pb-1.5 text-xs text-slate-500 border-b border-slate-100">
-            נותרו {remaining} מתוך {todayAppts.length} תורים
+          <div className="px-4 pt-2 pb-1.5 text-xs text-slate-600 border-b border-slate-100">
+            {remaining === 0
+              ? 'לא נותרו תורים להיום'
+              : remaining === 1
+                ? 'נותר תור אחד להיום'
+                : `נותרו ${remaining} תורים להיום`}
           </div>
           <div className="p-1.5 space-y-1">
             {todayGroups.length === 0 ? (
@@ -349,16 +370,16 @@ export default function Dashboard() {
                       {group.appts.map((a, i) => {
                         const p = patientById[a.patientId]
                         const t = therapistById[a.therapistId]
-                        const terminal = isTerminal(a)
+                        const past = isPast(a)
                         return (
                           <div
                             key={a.id}
-                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''} ${terminal ? 'opacity-60' : ''}`}
+                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''} ${past ? 'opacity-60' : ''}`}
                           >
                             <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
-                              <p className="text-xs text-slate-500 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
+                              <p className="text-xs text-slate-600 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
                             </div>
                             <AppointmentActions appt={a} compact />
                           </div>
