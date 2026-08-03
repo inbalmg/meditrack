@@ -141,9 +141,10 @@ export default function Dashboard() {
             {buildSummary({ appts: todayAppts.length, pending: pending.length, urgent: overdueCount })}
           </p>
         </div>
-        <Badge tone="teal">
-          <Clock size={13} /> {now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </Badge>
+        <div className="flex items-center gap-1.5 text-sm font-medium text-teal-700 whitespace-nowrap">
+          <Clock size={15} className="shrink-0" />
+          {now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </div>
       </div>
 
 

@@ -6,12 +6,13 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  Plus,
 } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
 import { clsx } from '../components/clsx.js'
+import { CrossMark } from '../components/Logo.jsx'
+import logoUrl from '../assets/meditrack-logo.png'
 
 export default function ClinicLayout() {
   const { role, logout } = useSession()
@@ -38,17 +39,12 @@ export default function ClinicLayout() {
     <div className="min-h-full flex bg-canvas">
       {/* Sidebar (right, in RTL) */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col bg-ink-900 text-slate-300 sticky top-0 h-screen">
-        <div className="flex items-center gap-3 px-6 h-16 border-b border-white/5">
-          <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-500 text-white">
-            <Plus size={20} strokeWidth={3} />
-          </span>
-          <div>
-            <p className="font-bold text-white leading-tight">MediTrack</p>
-            <p className="text-[11px] text-teal-400">Clinic</p>
-          </div>
+        <div className="flex items-center px-6 h-16 border-b border-white/5">
+          {/* Same high-res wordmark asset as the login/welcome hero (identical logo across views). */}
+          <img src={logoUrl} alt="MediTrack Clinic" className="h-10 w-auto" />
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 pt-[19px] pb-4 space-y-1">
           {nav.map((item) => (
             <NavLink
               key={item.to}
@@ -56,9 +52,9 @@ export default function ClinicLayout() {
               end={item.end}
               className={({ isActive }) =>
                 clsx(
-                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition',
+                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-medium transition',
                   isActive
-                    ? 'bg-teal-500 text-white shadow-sm'
+                    ? 'bg-teal-600 text-white shadow-sm'
                     : 'text-slate-300 hover:bg-white/5 hover:text-white',
                 )
               }
@@ -118,10 +114,8 @@ function TopBar({ role, onLogout, nav }) {
       <div className="h-16 px-4 sm:px-6 flex items-center gap-3 max-w-[1400px] mx-auto">
         {/* Mobile brand + nav */}
         <div className="md:hidden flex items-center gap-2">
-          <span className="grid place-items-center h-8 w-8 rounded-lg bg-teal-600 text-white">
-            <Plus size={18} strokeWidth={3} />
-          </span>
-          <span className="font-bold text-slate-800">MediTrack</span>
+          <CrossMark className="h-7 w-7" />
+          <span className="font-bold text-lg text-slate-800">MediTrack</span>
         </div>
         <div className="flex-1" />
         <div className="md:hidden">
