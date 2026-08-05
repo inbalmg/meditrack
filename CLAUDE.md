@@ -127,9 +127,13 @@ src/
 
 ## מודל אבטחה — מצב נוכחי ומתוכנן
 
-**היום (דמו):** אין אימות אמיתי. `Login.jsx` — המשתמש בוחר תפקיד/מטופל ידנית; `role` (`session.jsx`)
-ו-`currentPatientId` (`store.jsx`) הם state בזיכרון, מתאפסים ברענון. `RequireRole` (`App.jsx`) חוסם גישה
-חוצת-אזור. `src/lib/supabase.js` = **stub בלבד** (client מ-env vars, לא מחובר ל-Auth/DB).
+**היום — מחובר ל-Supabase (Auth + DB + RLS):** `Login.jsx` = כניסת Supabase Auth אמיתית
+(אימייל+סיסמה למשתמשי הדגמה; מטופל = OTP לטלפון מתוכנן). `session.jsx` גוזר את `role` מ-`app_metadata.role`
+שב-JWT (ל-מטפל נגזר גם `role.therapistId` משורת המטפל), ו-`currentPatientId` מגיע מהסשן המאומת.
+`store.jsx` = **מירור מקומי מעל Supabase** — טוען את כל הישויות בכניסה (RLS-scoped), וכל פעולה מעדכנת
+state אופטימי (UUID מהלקוח) ומתמידה ל-DB ברקע; אותו חוזה `useData()` סינכרוני, הרכיבים לא השתנו.
+**RLS הוא שכבת האכיפה** (מדיניות לפי `clinic_id`+`role`); `RequireRole` (`App.jsx`) = UX בלבד. פונקציות
+Edge: `classify-request` (סיווג) ו-`send-reminder` (וואטסאפ/SMS) מחזיקות סודות בשרת. הסשן נשמר בין רענונים.
 
 **מתוכנן ל-Production (עם Supabase) — לעקוב אחריו כשמחברים DB:**
 - **Authentication (Supabase Auth):** מטופל = OTP לטלפון (הטלפון כבר ערוץ התזכורות); צוות
@@ -149,7 +153,8 @@ src/
 
 - עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`); טקסטים בקוד בעברית — לשמור.
 - צבעים דרך טוקני Tailwind (`teal-*`, `ink-*`, `canvas`) — לא hex ישיר ב-JSX.
-- **state בזיכרון בלבד** — רענון דף מאפס את הסשן (מחזיר ל-login). ניווט אמיתי דרך קישורי SPA, לא URL.
+- **נתונים מ-Supabase, סשן נשמר** — הסשן המאומת נשמר בין רענונים; `store.jsx` טוען מה-DB בכניסה (RLS-scoped)
+  ומתמיד פעולות ברקע. דורש `.env` עם `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (ראו `.env.example`). ניווט דרך קישורי SPA.
 - כל בעיה שנראית בדפדפן — לתקן בקוד המקור, לא ב-DevTools.
 - **נראות פורטל המטופל (רספונסיבי, `PatientLayout.jsx`):** אותה כתובת, שתי פריסות לפי breakpoint `md`:
   - **מובייל (`<md`):** כותרת כהה למעלה + **טאבים תחתונים** (2 טאבים), תוכן במסך מלא.

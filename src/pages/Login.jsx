@@ -1,51 +1,53 @@
-import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { Stethoscope, UserCog, ShieldCheck, UserRound, UserPlus } from 'lucide-react'
-import { useSession, ROLES } from '../session.jsx'
-import { useData } from '../data/store.jsx'
+import { ShieldCheck, UserCog, Stethoscope, UserRound } from 'lucide-react'
+import { signInWithPassword } from '../lib/auth.js'
 import Welcome, { WelcomeCard, StaffIcon, PatientIcon } from './Welcome.jsx'
 
-const CLINIC_ROLES = [
-  { id: 'secretary', icon: UserCog },
-  { id: 'manager', icon: ShieldCheck },
-  { id: 'therapist', icon: Stethoscope },
+// Fixed demo/test accounts (see supabase/seed_auth_users.sql). Sign-in is real
+// Supabase Auth — on success the session updates and App redirects to role.home.
+const DEMO_PASSWORD = 'Meditrack1!'
+const STAFF_ACCOUNTS = [
+  { email: 'manager@meditrack.test', title: 'מנהל/ת קליניקה', subtitle: 'גישה מלאה + דוחות ואנליטיקה', icon: ShieldCheck },
+  { email: 'secretary@meditrack.test', title: 'מזכירות', subtitle: 'ניהול צינור הבקשות, יומן ומשימות', icon: UserCog },
+  { email: 'therapist@meditrack.test', title: 'רופא / מטפל', subtitle: 'צפייה ביומן ובמשימות שלי', icon: Stethoscope },
 ]
 
-// אייקון lucide בתוך עיגול הכרטיס — באותו גוון טורקיז של אייקוני העיצוב.
 function CircleIcon({ icon: Icon }) {
   return <Icon style={{ width: '3em', height: '3em', color: '#3d8b82' }} strokeWidth={1.7} />
 }
 
 export default function Login() {
-  const { login } = useSession()
-  const { setCurrentPatient } = useData()
-  const navigate = useNavigate()
   const [entrance, setEntrance] = useState(null) // null | 'clinic' | 'patient'
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
 
-  function enter(roleId) {
-    login(roleId)
-    navigate(ROLES[roleId].home, { replace: true })
+  async function enter(email) {
+    setBusy(true); setError(null)
+    try {
+      await signInWithPassword(email, DEMO_PASSWORD)
+      // Session update → App redirects; DataProvider shows its loading screen.
+    } catch (e) {
+      setError('ההתחברות נכשלה. נסו שוב.')
+      setBusy(false)
+    }
   }
 
-  // Enter the patient portal either as a registered patient (phone on file) or
-  // as a first-time patient (no record yet → phone entered during booking).
-  function enterPatient(patientId) {
-    setCurrentPatient(patientId)
-    enter('patient')
-  }
+  const hint = (
+    <p style={{ margin: 0, fontSize: '1.05em', color: 'rgba(200,218,224,0.6)', textAlign: 'right' }}>
+      {busy ? 'מתחבר…' : 'חשבונות הדגמה · סיסמה: Meditrack1!'}
+    </p>
+  )
+  const errorBanner = error && (
+    <p style={{ margin: 0, fontSize: '1.05em', color: '#fca5a5', textAlign: 'right' }}>{error}</p>
+  )
 
   if (entrance === 'clinic') {
     return (
       <Welcome heading="כניסת צוות" onBack={() => setEntrance(null)}>
-        {CLINIC_ROLES.map(({ id, icon }) => (
-          <WelcomeCard
-            key={id}
-            icon={<CircleIcon icon={icon} />}
-            title={ROLES[id].label}
-            subtitle={ROLES[id].desc}
-            onClick={() => enter(id)}
-          />
+        {STAFF_ACCOUNTS.map((a) => (
+          <WelcomeCard key={a.email} icon={<CircleIcon icon={a.icon} />} title={a.title} subtitle={a.subtitle} onClick={() => enter(a.email)} />
         ))}
+        {hint}{errorBanner}
       </Welcome>
     )
   }
@@ -53,39 +55,22 @@ export default function Login() {
   if (entrance === 'patient') {
     return (
       <Welcome heading="פורטל מטופלים" onBack={() => setEntrance(null)}>
-        {/* מטופל/ת רשומ/ה — הטלפון כבר במערכת (ממולא-מראש בהזמנה) */}
         <WelcomeCard
           icon={<CircleIcon icon={UserRound} />}
           title="רותם ברק"
           subtitle="מטופל/ת רשומ/ה · 050-1234567"
-          onClick={() => enterPatient('p1')}
+          onClick={() => enter('patient@meditrack.test')}
         />
-        {/* מטופל/ת חדש/ה — אין רשומה; שם+טלפון נקלטים בבקשת התור */}
-        <WelcomeCard
-          icon={<CircleIcon icon={UserPlus} />}
-          title="מטופל/ת חדש/ה"
-          subtitle="פנייה ראשונה · הזנת שם וטלפון בבקשת התור"
-          onClick={() => enterPatient(null)}
-        />
+        {hint}{errorBanner}
       </Welcome>
     )
   }
 
-  // מסך נחיתה ראשי — שתי כניסות
   return (
     <Welcome heading="ברוכים הבאים">
-      <WelcomeCard
-        icon={<StaffIcon />}
-        title="כניסת צוות הקליניקה"
-        subtitle="מזכירות · מטפלים · הנהלה"
-        onClick={() => setEntrance('clinic')}
-      />
-      <WelcomeCard
-        icon={<PatientIcon />}
-        title="פורטל מטופלים"
-        subtitle="בקשת תור · עדכונים · מעקב"
-        onClick={() => setEntrance('patient')}
-      />
+      <WelcomeCard icon={<StaffIcon />} title="כניסת צוות הקליניקה" subtitle="מזכירות · מטפלים · הנהלה" onClick={() => setEntrance('clinic')} />
+      <WelcomeCard icon={<PatientIcon />} title="פורטל מטופלים" subtitle="בקשת תור · עדכונים · מעקב" onClick={() => setEntrance('patient')} />
+      {errorBanner}
     </Welcome>
   )
 }
