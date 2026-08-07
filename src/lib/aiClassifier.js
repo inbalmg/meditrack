@@ -59,21 +59,31 @@ export function classifyRequest({ description = '', preferredTherapistId = null,
   const urgentFlag = urgency === 'דחוף'
 
   // --- Suggested treatment: patient's own choice wins; AI only fills a gap ---
+  // `matched` tracks whether the treatment came from a REAL signal (the patient's
+  // own hint or a keyword rule) vs. the pure default fallback — so the caller can
+  // tell "confident recommendation" from "couldn't understand, guessing physio".
   let treatmentId = null
+  let matched = false
   if (visitTypeHint) {
     const t = treatments.find((tr) => tr.name === visitTypeHint)
-    if (t) treatmentId = t.id
+    if (t) { treatmentId = t.id; matched = true }
   }
   if (!treatmentId) {
     for (const rule of TREATMENT_RULES) {
       if (countHits(text, rule.match) > 0) {
         treatmentId = rule.id
+        matched = true
         break
       }
     }
   }
   if (!treatmentId) treatmentId = 'tr1' // sensible default: physio assessment
   const treatment = byId[treatmentId]
+
+  // Non-urgent input the classifier couldn't actually map to a treatment: don't
+  // present the default as a confident recommendation — the UI routes to a human
+  // or asks the patient to rephrase instead.
+  const lowConfidence = !matched && !urgentFlag
 
   // --- Routing: patient's preferred provider wins; else the treatment's provider ---
   let routedTo = preferredTherapistId || null
@@ -89,12 +99,16 @@ export function classifyRequest({ description = '', preferredTherapistId = null,
 
   const rationale = urgentFlag
     ? 'זוהו ביטויים שעשויים להעיד על מצב שדורש בדיקה — הופנה למרפאה לתיאום, במקום הזמנה עצמית.'
-    : `לפי התיאור, הטיפול המתאים ביותר הוא "${treatment.name}". ניתן לאשר ולהציע מועד.`
+    : lowConfidence
+      ? 'לא הצלחנו לזהות טיפול מתאים מהתיאור. אפשר להוסיף פרטים ולנסות שוב, או לשלוח פנייה למרפאה ונחזור אליך.'
+      : `לפי התיאור, הטיפול המתאים ביותר הוא "${treatment.name}". ניתן לאשר ולהציע מועד.`
 
   return {
     urgency,
     urgencyScore,
     urgentFlag,
+    matched,
+    lowConfidence,
     treatmentId,
     visitType: treatment.name, // denormalized (backward compat)
     routedTo,

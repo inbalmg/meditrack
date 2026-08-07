@@ -65,3 +65,10 @@ export function relativeFromNow(d) {
   const days = Math.floor(hrs / 24)
   return `לפני ${days} ימים`
 }
+
+// Patient age derived from year of birth (year-based, matching the birth-year
+// input). Returns null when unknown, so callers can render a blank gracefully.
+export function ageFromBirthYear(birthYear) {
+  if (!birthYear) return null
+  return new Date().getFullYear() - birthYear
+}

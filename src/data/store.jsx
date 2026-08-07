@@ -3,6 +3,7 @@ import { addHours } from 'date-fns'
 import { supabase } from '../lib/supabase.js'
 import { useSession } from '../session.jsx'
 import { classifyRequest } from '../lib/aiClassifier.js'
+import { ageFromBirthYear } from '../lib/format.js'
 import { AUTO_TASK_DUE_HOURS } from './seed.js'
 
 // DataProvider — the SAME useData() contract as before, now backed by Supabase.
@@ -29,7 +30,12 @@ const DEFAULT_SETTINGS = {
 
 // --- DB row → app-shape mappers (reproduce the exact objects components expect) ---
 const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, color: r.color, initials: r.initials })
-const mapPatient = (r) => ({ id: r.id, name: r.name, phone: r.phone, age: r.age, gender: r.gender })
+// `age` is derived from `birth_year` so it never goes stale; legacy rows without a
+// birth year fall back to their stored `age`.
+const mapPatient = (r) => {
+  const birthYear = r.birth_year ?? null
+  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear) ?? r.age ?? null, gender: r.gender }
+}
 const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
 const mapAppt = (r) => ({
   id: r.id, patientId: r.patient_id, therapistId: r.therapist_id, treatmentId: r.treatment_id,
@@ -127,6 +133,22 @@ export function DataProvider({ children }) {
   const patientById = useMemo(() => Object.fromEntries(patients.map((p) => [p.id, p])), [patients])
   const therapistById = useMemo(() => Object.fromEntries(therapists.map((t) => [t.id, t])), [therapists])
   const treatmentById = useMemo(() => Object.fromEntries(treatments.map((t) => [t.id, t])), [treatments])
+
+  // People a task can be assigned to: treatment providers + office staff
+  // (secretary/manager). Staff rows carry no avatar, so derive initials + a neutral
+  // color, and tag each with `kind` so the picker can group them.
+  const assignees = useMemo(() => {
+    const OFFICE_ROLES = ['secretary', 'manager']
+    const OFFICE_COLOR = '#64748b' // slate — distinct from the therapist palette
+    const initialsOf = (name) => (name || '').trim().split(/\s+/).map((w) => w[0] || '').slice(0, 2).join('')
+    return [
+      ...therapists.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.color, kind: 'therapist' })),
+      ...staff
+        .filter((s) => OFFICE_ROLES.includes(s.roleId))
+        .map((s) => ({ id: s.id, name: s.name, initials: initialsOf(s.name), color: OFFICE_COLOR, kind: s.roleId })),
+    ]
+  }, [therapists, staff])
+  const assigneeById = useMemo(() => Object.fromEntries(assignees.map((a) => [a.id, a])), [assignees])
   const visitDurations = useMemo(() => Object.fromEntries(treatments.map((t) => [t.name, t.durationMin])), [treatments])
   const firstProviderFor = (treatmentId) => treatmentById[treatmentId]?.therapistIds?.[0] ?? null
   function treatmentsForTherapist(therapistId) {
@@ -209,10 +231,13 @@ export function DataProvider({ children }) {
   }
 
   // --- Patients ---
-  function addPatient({ name, phone, age = null, gender = null }) {
-    const patient = { id: uuid(), name, phone, age, gender }
+  function addPatient({ name, phone, birthYear = null, gender = null }) {
+    // Store the birth year (the stable fact); age is derived from it. The legacy
+    // `age` column is kept populated with the derived value for backward compat.
+    const age = ageFromBirthYear(birthYear)
+    const patient = { id: uuid(), name, phone, birthYear, age, gender }
     setPatients((prev) => [...prev, patient])
-    persist(supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name, phone, age, gender }), 'addPatient')
+    persist(supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name, phone, birth_year: birthYear, age, gender }), 'addPatient')
     return patient
   }
   function updatePatient(id, patch) {
@@ -301,25 +326,49 @@ export function DataProvider({ children }) {
   }
 
   // --- Status + tasks ---
+  // Build the auto follow-up task that a no-show spawns (shared by the single and
+  // bulk resolution paths so the task shape stays defined in one place).
+  function makeNoShowFollowUp(appt) {
+    return {
+      id: uuid(), title: `פולו-אפ אי-הגעה — ${patientById[appt.patientId]?.name ?? ''}`,
+      patientId: appt.patientId, assigneeId: appt.therapistId, createdAt: new Date(),
+      sourceAt: appt.start, due: addHours(new Date(), AUTO_TASK_DUE_HOURS),
+      status: 'פתוח', source: 'אוטומציה', note: 'נוצר אוטומטית לאחר אי-הגעה. ליצור קשר ולתאם מחדש.',
+    }
+  }
+  const followUpRow = (task) => ({
+    id: task.id, clinic_id: clinicId, title: task.title, patient_id: task.patientId,
+    assignee_id: task.assigneeId, source_at: task.sourceAt.toISOString(), due: task.due.toISOString(),
+    status: 'פתוח', source: 'אוטומציה', note: task.note,
+  })
+
   function setAppointmentStatus(apptId, newStatus) {
     setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a)))
     persist(supabase.from('appointments').update({ status: newStatus }).eq('id', apptId), 'setAppointmentStatus')
     if (newStatus === 'לא הגיע' && settings.followUpOnNoShow) {
       const appt = appointments.find((a) => a.id === apptId)
       if (appt) {
-        const task = {
-          id: uuid(), title: `פולו-אפ אי-הגעה — ${patientById[appt.patientId]?.name ?? ''}`,
-          patientId: appt.patientId, assigneeId: appt.therapistId, createdAt: new Date(),
-          sourceAt: appt.start, due: addHours(new Date(), AUTO_TASK_DUE_HOURS),
-          status: 'פתוח', source: 'אוטומציה', note: 'נוצר אוטומטית לאחר אי-הגעה. ליצור קשר ולתאם מחדש.',
-        }
+        const task = makeNoShowFollowUp(appt)
         setTasks((prev) => [task, ...prev])
-        persist(supabase.from('tasks').insert({
-          id: task.id, clinic_id: clinicId, title: task.title, patient_id: task.patientId,
-          assignee_id: task.assigneeId, source_at: task.sourceAt.toISOString(), due: task.due.toISOString(),
-          status: 'פתוח', source: 'אוטומציה', note: task.note,
-        }), 'noShowFollowUp')
+        persist(supabase.from('tasks').insert(followUpRow(task)), 'noShowFollowUp')
       }
+    }
+  }
+
+  // Batch-resolve a backlog of unresolved past appointments as no-shows: one
+  // state update + one persist round, each spawning its follow-up task (same
+  // automation as a single no-show). Skips any id that isn't still 'קבוע'.
+  function bulkMarkNoShow(ids) {
+    const set = new Set(ids)
+    const affected = appointments.filter((a) => set.has(a.id) && a.status === 'קבוע')
+    if (!affected.length) return
+    const affectedIds = affected.map((a) => a.id)
+    setAppointments((prev) => prev.map((a) => (set.has(a.id) && a.status === 'קבוע' ? { ...a, status: 'לא הגיע' } : a)))
+    persist(supabase.from('appointments').update({ status: 'לא הגיע' }).in('id', affectedIds), 'bulkMarkNoShow')
+    if (settings.followUpOnNoShow) {
+      const newTasks = affected.map(makeNoShowFollowUp)
+      setTasks((prev) => [...newTasks, ...prev])
+      persist(supabase.from('tasks').insert(newTasks.map(followUpRow)), 'bulkNoShowFollowUp')
     }
   }
 
@@ -340,13 +389,31 @@ export function DataProvider({ children }) {
     }), 'addTask')
   }
 
+  // Edit an existing task (title / assignee / due / note). Only the given keys are
+  // touched; maps camelCase patch keys to the DB columns.
+  function updateTask(id, patch) {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+    const row = {}
+    if (patch.title !== undefined) row.title = patch.title
+    if (patch.assigneeId !== undefined) row.assignee_id = patch.assigneeId
+    if (patch.note !== undefined) row.note = patch.note
+    if (patch.due !== undefined) row.due = patch.due instanceof Date ? patch.due.toISOString() : patch.due
+    persist(supabase.from('tasks').update(row).eq('id', id), 'updateTask')
+  }
+
+  function deleteTask(id) {
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    persist(supabase.from('tasks').delete().eq('id', id), 'deleteTask')
+  }
+
   const value = {
     therapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
-    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist,
+    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor,
+    assignees, assigneeById,
     updateSettings, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient,
     bookAppointment, cancelAppointment, submitRequest, approveRequest, rejectRequest,
-    setAppointmentStatus, setTaskStatus, addTask,
+    setAppointmentStatus, bulkMarkNoShow, setTaskStatus, addTask, updateTask, deleteTask,
   }
 
   const gated = status === 'loading' || (status === 'authed' && !ready)

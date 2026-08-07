@@ -79,21 +79,22 @@ export default function ClinicLayout() {
           ))}
         </nav>
 
-        <div className="p-3 border-t border-white/5">
+        <div className="p-3 border-t border-white/5 space-y-1">
           <div className="flex items-center gap-3 px-2 py-2">
             <Avatar initials={role.id === 'manager' ? 'מנ' : 'מז'} color="#14b8a6" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{role.label}</p>
               <p className="text-[11px] text-slate-400 truncate">מרפאת שקד · מרכז</p>
             </div>
-            <button
-              onClick={handleLogout}
-              title="יציאה"
-              className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5"
-            >
-              <LogOut size={18} />
-            </button>
           </div>
+          {/* Dedicated, explicit logout row (icon + label). */}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-medium text-slate-300 hover:bg-red-500/10 hover:text-red-300 transition"
+          >
+            <LogOut size={19} />
+            <span className="flex-1 text-right">התנתקות</span>
+          </button>
         </div>
       </aside>
 

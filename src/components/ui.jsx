@@ -128,36 +128,46 @@ const KPI_ACCENTS = {
 
 // A summary tile. When `onClick` is given it becomes a button that navigates /
 // scrolls to its section, with a chevron affordance centered on the left edge.
-export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick, compact = false }) {
+// `sub` renders inline, on the same baseline as the value (so every card's main
+// number sits on one shared row). `chevron` (default true for clickable cards) can
+// be turned off for tiles that only scroll within the page rather than navigate away.
+export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick, compact = false, sub, chevron = true }) {
   const clickable = typeof onClick === 'function'
+  const showChevron = clickable && chevron
   return (
     <Card
       as={clickable ? 'button' : undefined}
       onClick={onClick}
       className={clsx(
         'relative flex items-center w-full text-right',
-        compact ? 'p-2.5 gap-3' : 'p-4 gap-3.5',
+        compact ? 'p-3 gap-3' : 'p-4 gap-3.5',
+        showChevron && 'pl-8',
         accent && KPI_ACCENTS[accent],
-        clickable && 'cursor-pointer hover:ring-slate-300 transition',
+        clickable && 'cursor-pointer hover:bg-slate-50 transition-colors',
       )}
     >
       {Icon && (
-        <span className={clsx('grid place-items-center rounded-xl shrink-0', compact ? 'h-9 w-9' : 'h-11 w-11', KPI_TONES[tone] || KPI_TONES.teal)}>
-          <Icon size={compact ? 18 : 21} />
+        <span className={clsx('grid place-items-center rounded-xl shrink-0', compact ? 'h-10 w-10' : 'h-11 w-11', KPI_TONES[tone] || KPI_TONES.teal)}>
+          <Icon size={compact ? 20 : 21} />
         </span>
       )}
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500 truncate">{label}</p>
-        <div className="flex items-baseline gap-2">
-          <span className={clsx('font-bold text-slate-800 tabular-nums', compact ? 'text-xl' : 'text-2xl')}>{value}</span>
+      <div className="min-w-0 flex-1">
+        <p className={clsx('text-slate-500 truncate', compact ? 'text-sm' : 'text-xs')}>{label}</p>
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="font-bold text-slate-800 tabular-nums shrink-0 text-2xl">{value}</span>
           {delta && (
-            <span className={clsx('text-xs font-medium', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
+            <span className={clsx('text-xs font-medium shrink-0', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
               {delta}
+            </span>
+          )}
+          {sub && (
+            <span className="text-xs text-slate-500 truncate" title={typeof sub === 'string' ? sub : undefined}>
+              {sub}
             </span>
           )}
         </div>
       </div>
-      {clickable && (
+      {showChevron && (
         <ChevronDown size={16} className="absolute top-1/2 -translate-y-1/2 left-3 text-slate-400" />
       )}
     </Card>

@@ -57,16 +57,16 @@ tp as (
   returning 1
 ),
 pt as (
-  insert into public.patients (clinic_id, name, phone, age, gender)
-  select c.id, x.name, x.phone, x.age, x.gender
+  insert into public.patients (clinic_id, name, phone, birth_year, gender)
+  select c.id, x.name, x.phone, x.birth_year, x.gender
   from c, (values
-    ('רותם ברק',    '050-1234567', 34, 'נ'),
-    ('אבי מזרחי',   '052-9876543', 58, 'ז'),
-    ('שירה גולן',   '054-5551212', 29, 'נ'),
-    ('נועם פרידמן', '053-4448899', 41, 'ז'),
-    ('ליאור שמש',   '058-3332211', 45, 'נ'),
-    ('תמר אוחיון',  '050-7778866', 67, 'נ')
-  ) as x(name, phone, age, gender)
+    ('רותם ברק',    '050-1234567', 1992, 'נ'),
+    ('אבי מזרחי',   '052-9876543', 1968, 'ז'),
+    ('שירה גולן',   '054-5551212', 1997, 'נ'),
+    ('נועם פרידמן', '053-4448899', 1985, 'ז'),
+    ('ליאור שמש',   '058-3332211', 1981, 'נ'),
+    ('תמר אוחיון',  '050-7778866', 1959, 'נ')
+  ) as x(name, phone, birth_year, gender)
   returning id, name
 ),
 -- Named appointments a1..a15 (span past / this week / up to ~4 months out).

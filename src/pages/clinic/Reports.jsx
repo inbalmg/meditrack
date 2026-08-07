@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { Sparkles, TrendingUp, TrendingDown, Gauge, UserX, PieChart } from 'lucide-react'
+import { Sparkles, TrendingUp, TrendingDown, Gauge, UserX, PieChart, AlertTriangle } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Kpi } from '../../components/ui.jsx'
+import { isUnresolvedPast } from '../../lib/appointments.js'
 import { VISIT_TYPES } from '../../data/seed.js'
 
 const DAY_LABELS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳']
@@ -27,6 +28,11 @@ export default function Reports() {
   const noShows = appointments.filter((a) => a.status === 'לא הגיע').length
   const completedOrPast = appointments.filter((a) => ['לא הגיע', 'הסתיים', 'הגיע'].includes(a.status)).length
   const noShowRate = completedOrPast ? Math.round((noShows / completedOrPast) * 100) : 0
+
+  // Past appointments left as 'קבוע' are excluded from the no-show base above, so
+  // while any remain the rate is provisional — surface a count that nudges the
+  // manager to resolve them (done from the clinic Dashboard).
+  const unresolvedPast = appointments.filter((a) => isUnresolvedPast(a)).length
 
   const typeBreakdown = useMemo(() => {
     const map = Object.fromEntries(VISIT_TYPES.map((v) => [v, 0]))
@@ -63,6 +69,9 @@ export default function Reports() {
           <b> {noShowRate}%</b> — מגמת שיפור מתמשכת בזכות התזכורות האוטומטיות. עומס השיא הוא בימי
           ראשון–שני בבוקר. <b>המלצה:</b> להוסיף משבצת בוקר אצל ד״ר אבני בימי ראשון ולהפעיל תזכורת
           נוספת 3 שעות לפני התור לבקשות שסווגו כ״דחוף״.
+          {unresolvedPast > 0 && (
+            <> <b>שים/י לב:</b> {unresolvedPast} תורים מהעבר טרם סומנו — שיעור אי-ההגעות חלקי עד לעדכונם.</>
+          )}
         </p>
       </Card>
 
@@ -73,6 +82,17 @@ export default function Reports() {
         <Kpi label="תורים שבועיים" value={totalBooked} icon={TrendingUp} />
         <Kpi label="בקשות דיגיטליות" value="52%" icon={PieChart} delta="יעד 50%" deltaTone="green" />
       </div>
+
+      {/* Data-integrity notice: the no-show rate is provisional while past
+          appointments remain unmarked. Resolution happens on the Dashboard. */}
+      {unresolvedPast > 0 && (
+        <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={17} className="text-amber-600 shrink-0" />
+          <span>
+            <b>{unresolvedPast}</b> תורים מהעבר טרם סומנו (הגיע/לא הגיע) — הנתונים חלקיים עד לעדכונם בלוח הבקרה.
+          </span>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Occupancy per day */}

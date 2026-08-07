@@ -61,13 +61,14 @@ export function treatmentsForTherapist(therapistId) {
   return treatments.filter((t) => t.therapistIds.includes(therapistId))
 }
 
+// Age is derived from birthYear (see lib/format.js → ageFromBirthYear), not stored.
 export const patients = [
-  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', age: 34, gender: 'נ' },
-  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', age: 58, gender: 'ז' },
-  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', age: 29, gender: 'נ' },
-  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', age: 41, gender: 'ז' },
-  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', age: 45, gender: 'נ' },
-  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', age: 67, gender: 'נ' },
+  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'נ' },
+  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'ז' },
+  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'נ' },
+  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'ז' },
+  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'נ' },
+  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'נ' },
 ]
 
 // The signed-in patient for the mobile portal demo.
@@ -169,6 +170,10 @@ export const seedAppointments = [
   appt('a9', 'p6', 'tr1', 3, 9, 30, 'קבוע', 'הערכת כאב גב'),
   appt('a10', 'p1', 'tr5', 4, 13, 0, 'קבוע', 'עיסוי רפואי לגב'),
   appt('a11', 'p4', 'tr2', -3, 10, 0, 'לא הגיע', 'טיפול המשך'),
+  // תורים מהעבר שנשארו "קבוע" — הדגמה של תורים שלא סומנו (הגיע/לא הגיע) שממתינים
+  // לטיפול המזכירה בלוח הבקרה, בלי תלות בשעה הנוכחית.
+  appt('a16', 'p5', 'tr1', -1, 10, 0, 'קבוע', 'הערכת כאב גב — לא סומן'),
+  appt('a17', 'p6', 'tr3', -2, 12, 30, 'קבוע', 'סדרת דיקור — לא סומן'),
   // תורים עתידיים (עד ~4 חודשים קדימה) — מדגימים את אופק 6 החודשים בניווט היומן.
   appt('a12', 'p1', 'tr1', 14, 10, 0, 'קבוע', 'הערכת פיזיותרפיה — מעקב'),
   appt('a13', 'p3', 'tr3', 31, 11, 30, 'קבוע', 'סדרת דיקור — המשך'),

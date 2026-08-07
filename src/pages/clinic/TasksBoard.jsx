@@ -1,7 +1,10 @@
-import { useState } from 'react'
-import { ListChecks, Plus, Zap, User, ArrowLeftRight, Check, Clock } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { ListChecks, Plus, Zap, User, ArrowLeftRight, Check, Clock, Pencil, Trash2 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
+import UnresolvedAppointments from '../../components/UnresolvedAppointments.jsx'
+import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { friendlyDate, hhmm } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
@@ -13,9 +16,30 @@ const COLUMNS = [
 
 const NEXT = { פתוח: 'בטיפול', בטיפול: 'הושלם' }
 
+// Date <-> <input type="datetime-local"> value (local time, minute precision).
+const toLocalInput = (d) => {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 export default function TasksBoard() {
-  const { tasks, patientById, therapistById, setTaskStatus, addTask, therapists } = useData()
-  const [showForm, setShowForm] = useState(false)
+  const { tasks, patientById, assignees, assigneeById, setTaskStatus, addTask, updateTask, deleteTask } = useData()
+  // Form target: null (closed) · 'new' (create) · a task object (edit).
+  const [editing, setEditing] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+
+  // Deep-link target from the Dashboard "תורים שלא סומנו" KPI: scroll the review
+  // queue into view and briefly ring it so the redirect lands where it should.
+  const location = useLocation()
+  const reviewRef = useRef(null)
+  const [highlighted, setHighlighted] = useState(false)
+  useEffect(() => {
+    if (location.state?.focus !== 'unresolved') return
+    reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setHighlighted(true)
+    const t = setTimeout(() => setHighlighted(false), 2000)
+    return () => clearTimeout(t)
+  }, [location.state])
 
   return (
     <div className="space-y-5 animate-fade">
@@ -24,18 +48,22 @@ export default function TasksBoard() {
           <h1 className="text-2xl font-bold text-slate-800">לוח משימות</h1>
           <p className="text-slate-500 mt-0.5">יצירה, שיוך לאחראי ומעקב · משימות אוטומטיות מסומנות בתגית</p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)}>
+        <Button onClick={() => setEditing((e) => (e === 'new' ? null : 'new'))}>
           <Plus size={17} /> משימה חדשה
         </Button>
       </div>
 
-      {showForm && (
-        <NewTaskForm
-          therapists={therapists}
-          onCancel={() => setShowForm(false)}
-          onCreate={(t) => {
-            addTask(t)
-            setShowForm(false)
+      <UnresolvedAppointments ref={reviewRef} highlighted={highlighted} />
+
+      {editing && (
+        <TaskForm
+          assignees={assignees}
+          initial={editing === 'new' ? null : editing}
+          onCancel={() => setEditing(null)}
+          onSubmit={(data) => {
+            if (editing === 'new') addTask(data)
+            else updateTask(editing.id, data)
+            setEditing(null)
           }}
         />
       )}
@@ -57,20 +85,37 @@ export default function TasksBoard() {
                   </div>
                 ) : (
                   items.map((t) => {
-                    const patient = t.patientId ? patientById[t.patientId] : null
-                    const assignee = t.assigneeId ? therapistById[t.assigneeId] : null
+                    const assignee = t.assigneeId ? assigneeById[t.assigneeId] : null
                     return (
                       <Card key={t.id} className="p-4">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="font-medium text-slate-800 leading-snug">{t.title}</p>
-                          {t.source === 'אוטומציה' ? (
-                            <Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>
-                          ) : (
-                            <Badge tone="slate"><User size={12} /> ידני</Badge>
-                          )}
+                          <p className="font-medium text-slate-800 leading-snug min-w-0">{t.title}</p>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {t.source === 'אוטומציה' ? (
+                              <Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>
+                            ) : (
+                              <Badge tone="slate"><User size={12} /> ידני</Badge>
+                            )}
+                            <button
+                              type="button"
+                              title="עריכת משימה"
+                              onClick={() => setEditing(t)}
+                              className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              title="מחיקת משימה"
+                              onClick={() => setConfirmDelete(t)}
+                              className="p-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                         {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
-                        <div className="mt-3 flex items-center gap-3 text-xs text-slate-400">
+                        <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
                           <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
                           {assignee && (
                             <span className="flex items-center gap-1">
@@ -96,45 +141,75 @@ export default function TasksBoard() {
           )
         })}
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="למחוק את המשימה?"
+          message={`"${confirmDelete.title}" תימחק לצמיתות. לא ניתן לשחזר.`}
+          confirmLabel="מחיקה"
+          onConfirm={() => { deleteTask(confirmDelete.id); setConfirmDelete(null) }}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }
 
-function NewTaskForm({ therapists, onCreate, onCancel }) {
-  const [title, setTitle] = useState('')
-  const [assigneeId, setAssigneeId] = useState(therapists[0].id)
-  const [note, setNote] = useState('')
+// Create or edit a task. `initial` = a task to edit (null → create). The assignee
+// picker groups treatment providers and office staff (secretary/manager).
+function TaskForm({ assignees, initial, onSubmit, onCancel }) {
+  const isEdit = !!initial
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? assignees[0]?.id ?? '')
+  const [note, setNote] = useState(initial?.note ?? '')
+  const [due, setDue] = useState(toLocalInput(initial?.due instanceof Date ? initial.due : new Date()))
+
+  const therapists = assignees.filter((a) => a.kind === 'therapist')
+  const office = assignees.filter((a) => a.kind !== 'therapist')
+
+  const inputCls = 'h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500'
 
   return (
     <Card className="p-5">
-      <h3 className="font-semibold text-slate-800 mb-3">משימה חדשה</h3>
+      <h3 className="font-semibold text-slate-800 mb-3">{isEdit ? 'עריכת משימה' : 'משימה חדשה'}</h3>
       <div className="grid sm:grid-cols-2 gap-3">
         <input
           autoFocus
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="כותרת המשימה"
-          className="h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 sm:col-span-2"
+          className={clsx(inputCls, 'sm:col-span-2')}
         />
-        <select
-          value={assigneeId}
-          onChange={(e) => setAssigneeId(e.target.value)}
-          className="h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-        >
-          {therapists.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500">אחראי/ת</span>
+          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={clsx(inputCls, 'bg-white')}>
+            <optgroup label="מטפלים">
+              {therapists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </optgroup>
+            {office.length > 0 && (
+              <optgroup label="מזכירות והנהלה">
+                {office.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500">תאריך יעד</span>
+          <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} className={inputCls} />
+        </label>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="הערה (רשות)"
-          className="h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+          className={clsx(inputCls, 'sm:col-span-2')}
         />
       </div>
       <div className="flex gap-2 mt-4">
-        <Button disabled={!title.trim()} onClick={() => onCreate({ title: title.trim(), assigneeId, note: note.trim() })}>
-          <Plus size={16} /> הוספה
+        <Button
+          disabled={!title.trim()}
+          onClick={() => onSubmit({ title: title.trim(), assigneeId, note: note.trim(), due: due ? new Date(due) : new Date() })}
+        >
+          {isEdit ? <><Check size={16} /> שמירה</> : <><Plus size={16} /> הוספה</>}
         </Button>
         <Button variant="ghost" onClick={onCancel}>ביטול</Button>
       </div>

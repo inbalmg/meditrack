@@ -11,6 +11,7 @@ import {
   weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
 } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
+import { isUnresolvedPast } from '../../lib/appointments.js'
 import { VISIT_TYPES, VISIT_TYPE_SHORT } from '../../data/seed.js'
 
 const START_HOUR = 9
@@ -189,7 +190,7 @@ export default function Calendar() {
                           onClick={() => setSelectedId(appt.id)}
                           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelectedId(appt.id)}
                           className={clsx('absolute rounded-lg px-1.5 py-0.5 text-white overflow-hidden shadow-sm ring-1 cursor-pointer hover:brightness-110 transition',
-                            STATUS_RING[appt.status])}
+                            isUnresolvedPast(appt) ? 'ring-2 ring-amber-400' : STATUS_RING[appt.status])}
                           style={{
                             top: startMin * PX_PER_MIN + 1,
                             height: appt.durationMin * PX_PER_MIN - 2,

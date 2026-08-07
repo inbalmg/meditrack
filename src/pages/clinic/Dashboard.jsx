@@ -3,16 +3,15 @@ import { isToday } from 'date-fns'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
-  Clock3,
   ListTodo,
   AlertTriangle,
   ChevronLeft,
-  ChevronDown,
   CheckCircle2,
   Clock,
-  Phone,
   Plus,
   Info,
+  UserX,
+  ClipboardList,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
@@ -21,6 +20,8 @@ import RequestRow, { REQ_COLS } from '../../components/RequestRow.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import PhoneRequestDialog from '../../components/PhoneRequestDialog.jsx'
 import { hhmm, relativeFromNow } from '../../lib/format.js'
+import { useNow } from '../../lib/useNow.js'
+import { isUnresolvedPast, selectUnresolved } from '../../lib/appointments.js'
 import { clsx } from '../../components/clsx.js'
 
 // Demo greeting name — in production this comes from the authenticated user.
@@ -50,8 +51,6 @@ function buildSummary({ appts, pending, urgent }) {
   return parts.join(' · ')
 }
 
-const isTerminal = (a) => a.status === 'הסתיים' || a.status === 'לא הגיע'
-
 export default function Dashboard() {
   const { requests, appointments, tasks, patientById, therapistById } = useData()
   const { role } = useSession()
@@ -65,33 +64,32 @@ export default function Dashboard() {
   // filter was switched on. Snapshotting keeps rows from vanishing as opening
   // one marks it read — the table stays stable until the filter is cleared.
   const [unreadFilter, setUnreadFilter] = useState(null)
+  // Urgent-only filter chip + "show all" toggle for the top-5 preview.
+  const [urgentFilter, setUrgentFilter] = useState(false)
+  const [showAllRequests, setShowAllRequests] = useState(false)
 
   const requestsRef = useRef(null)
   const tasksRef = useRef(null)
   const todayRef = useRef(null)
   const nextApptRef = useRef(null)
   const scrollTo = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  // "הבא בתור" — glide straight to the highlighted next appointment (or the day
-  // board if none is left), centered so it lands in view.
-  const scrollToNext = () =>
-    (nextApptRef.current ?? todayRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
-  const now = new Date()
+  const now = useNow()
 
-  // Requests = exceptions awaiting approval, urgent first, then newest.
+  // Requests = exceptions awaiting approval, newest first.
   const pending = useMemo(
-    () =>
-      requests
-        .filter((r) => r.status === 'ממתין')
-        .sort(
-          (a, b) =>
-            (b.ai.urgentFlag ? 1 : 0) - (a.ai.urgentFlag ? 1 : 0) || b.createdAt - a.createdAt,
-        ),
+    () => requests.filter((r) => r.status === 'ממתין').sort((a, b) => b.createdAt - a.createdAt),
     [requests],
   )
   const unreadCount = pending.filter((r) => !openedIds.has(r.id)).length
-  // When the "new" filter is on, show only the snapshotted new requests.
-  const visiblePending = unreadFilter ? pending.filter((r) => unreadFilter.has(r.id)) : pending
+  const urgentCount = pending.filter((r) => r.ai.urgentFlag).length
+  // Apply the active filter chips (new / urgent) to the queue.
+  let filteredPending = pending
+  if (unreadFilter) filteredPending = filteredPending.filter((r) => unreadFilter.has(r.id))
+  if (urgentFilter) filteredPending = filteredPending.filter((r) => r.ai.urgentFlag)
+  // The table shows the newest 5; a "show all" toggle reveals the rest.
+  const REQUESTS_PREVIEW = 5
+  const displayedPending = showAllRequests ? filteredPending : filteredPending.slice(0, REQUESTS_PREVIEW)
   const toggleUnreadFilter = () =>
     setUnreadFilter((f) =>
       f ? null : new Set(pending.filter((r) => !openedIds.has(r.id)).map((r) => r.id)),
@@ -113,21 +111,38 @@ export default function Dashboard() {
     () => appointments.filter((a) => isToday(a.start)).sort((a, b) => a.start - b.start),
     [appointments],
   )
+  // "לוח היום" מציג רק תורים רלוונטיים כרגע: קרובים או פעילים (הגיע / רץ באיחור — עדיין
+  // בתוך המשבצת). תורים סופיים (הסתיים / לא הגיע) שייכים ליומן/היסטוריה, ותורים שעברו
+  // וטרם סומנו שייכים לתור הסקירה (KPI → לוח משימות) — לכן שניהם לא מוצגים כאן.
+  const visibleToday = useMemo(
+    () =>
+      todayAppts.filter(
+        (a) => a.status === 'הגיע' || (a.status === 'קבוע' && !isUnresolvedPast(a, now)),
+      ),
+    [todayAppts, now],
+  )
+  const visibleCount = visibleToday.length
+  // KPI reconciliation: main number = the remaining active count the schedule shows;
+  // the rest of today's appointments (finished / no-show / unmarked) are the context.
+  const todayTotal = todayAppts.length
+  const todayDone = todayTotal - visibleCount
   const todayGroups = useMemo(() => {
     const map = new Map()
-    for (const a of todayAppts) {
+    for (const a of visibleToday) {
       const key = a.start.getTime()
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(a)
     }
     return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([time, appts]) => ({ time, appts }))
-  }, [todayAppts])
+  }, [visibleToday])
 
-  const nextAppt = todayAppts.find((a) => a.start.getTime() >= now.getTime() && !isTerminal(a))
+  // "הבא בתור" = התור הקרוב ביותר שעדיין לא התחיל (מבין המוצגים).
+  const nextAppt = visibleToday.find((a) => a.start.getTime() >= now.getTime())
   const nextTime = nextAppt ? nextAppt.start.getTime() : null
-  // "עבר" = כבר טופל (הסתיים/לא הגיע) או שהשעה שלו כבר חלפה. נותרו = רק תורים עתידיים פעילים.
-  const isPast = (a) => isTerminal(a) || a.start.getTime() < now.getTime()
-  const remaining = todayAppts.filter((a) => !isPast(a)).length
+
+  // Unresolved past appointments (slot ended, still 'קבוע'): surfaced here only as
+  // a count. The KPI deep-links to the full review queue on the Tasks board.
+  const unresolvedCount = useMemo(() => selectUnresolved(appointments, now).length, [appointments, now])
 
   return (
     <div className="space-y-6 animate-fade">
@@ -148,16 +163,25 @@ export default function Dashboard() {
       </div>
 
 
-      {/* Prioritised summary — action tiles keep their colour; context tiles stay neutral. */}
+      {/* Prioritised summary — 4 balanced tiles, RTL right→left:
+          בקשות לאישור · תורים שלא סומנו · משימות להיום · תורים להיום. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Kpi
           compact
-          label="דורש אישור"
+          label="בקשות לאישור"
           value={pending.length}
-          icon={AlertTriangle}
-          tone="red"
-          accent="red"
+          icon={ClipboardList}
+          tone="blue"
+          chevron={false}
           onClick={() => scrollTo(requestsRef)}
+        />
+        <Kpi
+          compact
+          label="תורים שלא סומנו"
+          value={unresolvedCount}
+          icon={UserX}
+          tone={unresolvedCount > 0 ? 'red' : 'slate'}
+          onClick={() => navigate('/clinic/tasks', { state: { focus: 'unresolved' } })}
         />
         <Kpi
           compact
@@ -167,24 +191,23 @@ export default function Dashboard() {
           deltaTone="red"
           icon={ListTodo}
           tone="amber"
-          accent="amber"
+          chevron={false}
           onClick={() => scrollTo(tasksRef)}
         />
         <Kpi
           compact
-          label="תורים היום"
-          value={todayAppts.length}
+          label="תורים להיום"
+          value={visibleCount}
+          sub={
+            todayTotal === 0
+              ? undefined
+              : visibleCount === 0
+                ? `כל ${todayTotal} התורים הסתיימו`
+                : `מתוך ${todayTotal} להיום (${todayDone} הסתיימו)`
+          }
           icon={CalendarDays}
           tone="slate"
           onClick={() => navigate('/clinic/calendar')}
-        />
-        <Kpi
-          compact
-          label="הבא בתור"
-          value={nextAppt ? hhmm(nextAppt.start) : '—'}
-          icon={Clock3}
-          tone="slate"
-          onClick={scrollToNext}
         />
       </div>
 
@@ -201,7 +224,25 @@ export default function Dashboard() {
                 <h3 className="font-semibold text-white truncate">בקשות הדורשות טיפול</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* Filter pill — toggles the table to new requests only (Chevron flips when active) */}
+                {/* Urgent filter chip — sits to the right of the "new" chip (RTL). */}
+                {(urgentCount > 0 || urgentFilter) && (
+                  <button
+                    type="button"
+                    aria-pressed={urgentFilter}
+                    onClick={() => setUrgentFilter((v) => !v)}
+                    title={urgentFilter ? 'הצג את כל הבקשות' : 'סנן לבקשות דחופות בלבד'}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full px-3 h-8 text-sm font-medium ring-1 transition',
+                      urgentFilter
+                        ? 'bg-red-600 text-white ring-red-500 hover:bg-red-700'
+                        : 'bg-white/10 text-white ring-white/15 hover:bg-white/20',
+                    )}
+                  >
+                    <AlertTriangle size={13} className="shrink-0" />
+                    {urgentCount} {urgentCount === 1 ? 'דחופה' : 'דחופות'}
+                  </button>
+                )}
+                {/* New/unread filter chip — toggles the table to new requests only. */}
                 {pending.length > 0 && (unreadCount > 0 || unreadFilter) && (
                   <button
                     type="button"
@@ -217,15 +258,14 @@ export default function Dashboard() {
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-white shrink-0" />
                     {unreadCount} {unreadCount === 1 ? 'חדשה' : 'חדשות'}
-                    <ChevronDown size={15} className={clsx('transition-transform', unreadFilter && 'rotate-180')} />
                   </button>
                 )}
                 {role.canApprove && (
                   <button
                     onClick={() => setPhoneOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/15 px-3 h-8 text-sm font-medium transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-transparent hover:bg-teal-400/10 text-teal-300 ring-1 ring-teal-400 px-3 h-8 text-sm font-medium transition"
                   >
-                    <Plus size={15} /> <Phone size={15} /> בקשה טלפונית
+                    <Plus size={15} /> בקשה טלפונית
                   </button>
                 )}
               </div>
@@ -242,14 +282,16 @@ export default function Dashboard() {
                   <div className={REQ_COLS.chevron} />
                 </div>
                 <div>
-                  {visiblePending.length === 0 ? (
+                  {filteredPending.length === 0 ? (
                     unreadFilter ? (
                       <Empty icon={CheckCircle2} title="אין בקשות חדשות" hint="כל הבקשות החדשות כבר נקראו" />
+                    ) : urgentFilter ? (
+                      <Empty icon={CheckCircle2} title="אין בקשות דחופות" hint="אין כרגע בקשות שסומנו כדחופות" />
                     ) : (
                       <Empty icon={CheckCircle2} title="הכול טופל!" hint={QUEUE_HINT} />
                     )
                   ) : (
-                    visiblePending.map((r) => (
+                    displayedPending.map((r) => (
                       <RequestRow
                         key={r.id}
                         request={r}
@@ -262,6 +304,16 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+            {/* Pagination — reveal the rest beyond the top 5. */}
+            {filteredPending.length > REQUESTS_PREVIEW && (
+              <button
+                type="button"
+                onClick={() => setShowAllRequests((v) => !v)}
+                className="w-full border-t border-slate-100 px-4 py-2.5 text-sm font-medium text-teal-700 hover:bg-slate-50 transition"
+              >
+                {showAllRequests ? 'הצג פחות' : `הצג את כל ${filteredPending.length} הבקשות`}
+              </button>
+            )}
           </Card>
 
           {/* Tasks due today */}
@@ -340,16 +392,19 @@ export default function Dashboard() {
               </Link>
             }
           />
-          <div className="px-4 pt-2 pb-1.5 text-xs text-slate-600 border-b border-slate-100">
-            {remaining === 0
-              ? 'לא נותרו תורים להיום'
-              : remaining === 1
-                ? 'נותר תור אחד להיום'
-                : `נותרו ${remaining} תורים להיום`}
-          </div>
+          {/* Count line shows ONLY when items are displayed; the "nothing left"
+              state is the empty indicator below, never both at once. */}
+          {visibleCount > 0 && (
+            <div className="px-4 pt-2 pb-1.5 text-xs text-slate-600 border-b border-slate-100">
+              {visibleCount === 1 ? 'נותר תור אחד להיום' : `נותרו ${visibleCount} תורים להיום`}
+            </div>
+          )}
           <div className="p-1.5 space-y-1">
             {todayGroups.length === 0 ? (
-              <Empty icon={CalendarDays} title="אין תורים היום" />
+              <Empty
+                icon={CalendarDays}
+                title={todayAppts.length === 0 ? 'אין תורים היום' : 'לא נותרו תורים להיום'}
+              />
             ) : (
               todayGroups.map((group) => {
                 const isNext = group.time === nextTime
@@ -371,11 +426,10 @@ export default function Dashboard() {
                       {group.appts.map((a, i) => {
                         const p = patientById[a.patientId]
                         const t = therapistById[a.therapistId]
-                        const past = isPast(a)
                         return (
                           <div
                             key={a.id}
-                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''} ${past ? 'opacity-60' : ''}`}
+                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''}`}
                           >
                             <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                             <div className="flex-1 min-w-0">

@@ -111,7 +111,14 @@ src/
 - **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`, `updatePatient`.
 - **מטופל מחובר:** `currentPatientId` (state) + `setCurrentPatient(id|null)` — נקבע בכניסת המטופל.
 - **סטטוס/משימות:** `setAppointmentStatus` (אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
+  `bulkMarkNoShow(ids)` (סימון מרוכז של תורי-עבר שלא טופלו כ"לא הגיע", כל אחד מוליד משימת פולו-אפ),
   `setTaskStatus`, `addTask`.
+- **תורים שלא טופלו (unresolved past):** תור "קבוע" שהמשבצת שלו הסתיימה ולא סומן הגיע/לא-הגיע = מצב
+  לא-פתור שמעוות דוחות. הזיהוי הוא **state נגזר** (`lib/appointments.js` → `isUnresolvedPast`/`selectUnresolved`),
+  ללא מוטציה שקטה; הפתרון אנושי. **UX היברידי:** Dashboard מציג רק **KPI קומפקטי** עם המונה שמנווט
+  ל-`/clinic/tasks` (`state.focus:'unresolved'`); **תור הסקירה המלא** — `UnresolvedAppointments.jsx`,
+  **אקורדיון רך מתקפל** (מקופל כברירת מחדל; ניווט מה-KPI פותח אותו) עם שורות `AppointmentActions` + סימון-מרוכז —
+  חי בלוח המשימות. Reports מציג הערת "נתונים חלקיים" כל עוד קיימים כאלה.
 - **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
   — משפיעות בפועל ברחבי האפליקציה.
 

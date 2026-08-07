@@ -11,8 +11,8 @@ import {
   dayName, shortDate, hhmm,
   firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
 } from '../../lib/format.js'
+import { phoneValid, birthYearValid } from '../../lib/validation.js'
 import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
-import { classifyRequest } from '../../lib/aiClassifier.js'
 
 // 30-minute slot grid for a provider + date; a slot is available if it fits the
 // treatment duration without overlapping an existing appointment.
@@ -39,10 +39,12 @@ function buildSlots(date, therapistId, durationMin, appointments) {
   return out
 }
 
-// Israeli mobile number, forgiving of separators (accepts "050-1234567").
-function phoneValid(phone) {
-  const digits = (phone || '').replace(/\D/g, '')
-  return digits.length >= 9 && digits.startsWith('0')
+// Minimal-quality gate for the "not sure?" free-text: enough to classify, not a
+// single char / digits / emoji. Needs ≥4 trimmed chars AND at least one letter
+// (any script), so "כאב גב" / "מיגרנה" pass but "." / "12" / "🙂" don't.
+function meaningfulDescription(text) {
+  const t = (text || '').trim()
+  return t.length >= 4 && /\p{L}/u.test(t)
 }
 
 export default function NewRequest() {
@@ -72,14 +74,18 @@ export default function NewRequest() {
   // The phone is where appointment reminders (WhatsApp/SMS) are sent.
   const [name, setName] = useState(me?.name ?? '')
   const [phone, setPhone] = useState(me?.phone ?? '')
-  const contactValid = phoneValid(phone) && (!isNewPatient || name.trim().length > 0)
+  // Year of birth — collected once for a new patient (age is derived from it).
+  const [birthYear, setBirthYear] = useState('')
+  const contactValid =
+    phoneValid(phone) &&
+    (!isNewPatient || (name.trim().length > 0 && birthYearValid(birthYear)))
 
   // Ensure a patient record exists (creating a new one / saving an edited phone)
   // and return its id, or null if the contact details are invalid.
   function commitContact() {
     if (!contactValid) return null
     if (isNewPatient) {
-      const p = addPatient({ name: name.trim(), phone: phone.trim() })
+      const p = addPatient({ name: name.trim(), phone: phone.trim(), birthYear: Number(birthYear) })
       setCurrentPatient(p.id)
       return p.id
     }
@@ -168,13 +174,14 @@ export default function NewRequest() {
     return <UnsurePath
       isNew={isNewPatient}
       name={name} setName={setName} phone={phone} setPhone={setPhone}
+      birthYear={birthYear} setBirthYear={setBirthYear}
       contactValid={contactValid}
       onBack={() => setMode('book')}
       onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
-      onReferred={(desc, tId) => {
+      onSendToClinic={(desc, source) => {
         const patientId = commitContact()
         if (!patientId) return
-        submitRequest({ patientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source: 'הפניה דחופה' })
+        submitRequest({ patientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source })
         navigate('/patient')
       }}
     />
@@ -324,7 +331,7 @@ export default function NewRequest() {
           step so the numbering stays contiguous (1→2→3→4). */}
       {therapistId && treatmentId && (
         <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
-          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} />
+          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
         </Step>
       )}
 
@@ -336,7 +343,8 @@ export default function NewRequest() {
   )
 }
 
-function ContactFields({ isNew, name, setName, phone, setPhone }) {
+function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear }) {
+  const birthYearInvalid = (birthYear ?? '').trim().length > 0 && !birthYearValid(birthYear)
   return (
     <div className="space-y-3">
       {isNew && (
@@ -352,6 +360,28 @@ function ContactFields({ isNew, name, setName, phone, setPhone }) {
             placeholder="שם פרטי ומשפחה"
             className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
           />
+        </div>
+      )}
+      {isNew && (
+        <div>
+          <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <CalendarDays size={14} className="text-teal-600" /> שנת לידה <RequiredMark />
+          </label>
+          <input
+            value={birthYear}
+            onChange={(e) => setBirthYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            required
+            aria-required="true"
+            aria-invalid={birthYearInvalid}
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="1990"
+            className={clsx(
+              'w-full rounded-xl ring-1 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2',
+              birthYearInvalid ? 'ring-red-300 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+            )}
+          />
+          {birthYearInvalid && <p className="text-[11px] text-red-500 mt-1.5">שנת לידה לא תקינה</p>}
         </div>
       )}
       <div>
@@ -375,14 +405,18 @@ function ContactFields({ isNew, name, setName, phone, setPhone }) {
   )
 }
 
-function UnsurePath({ isNew, name, setName, phone, setPhone, contactValid, onBack, onProceed, onReferred }) {
-  const { therapistById, treatmentById } = useData()
+function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, contactValid, onBack, onProceed, onSendToClinic }) {
+  const { therapistById, treatmentById, aiFor } = useData()
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
+  const canAnalyze = meaningfulDescription(description)
 
   function analyze(e) {
     e.preventDefault()
-    setResult(classifyRequest({ description: description.trim() }))
+    if (!canAnalyze) return
+    // Use the store's aiFor (not classifyRequest directly): it remaps the
+    // classifier's seed ids to the real DB UUIDs the lookups are keyed by.
+    setResult(aiFor({ description: description.trim() }))
   }
 
   return (
@@ -405,22 +439,40 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, contactValid, onBac
         <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Sparkles size={12} /> ה-AI ימליץ על טיפול ומטפל, ויזהה מקרים שעדיף להפנות למרפאה</p>
       </div>
       {!result && (
-        <Button type="submit" size="lg" className="w-full" disabled={!description.trim()}><Sparkles size={16} /> קבלת המלצה</Button>
+        <Button type="submit" size="lg" className="w-full" disabled={!canAnalyze}><Sparkles size={16} /> קבלת המלצה</Button>
       )}
 
       {result && (
         <Card className="p-5 bg-teal-50/60 ring-teal-100">
-          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-3"><Sparkles size={15} /> ההמלצה שלנו</div>
+          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-3">
+            <Sparkles size={15} /> {result.lowConfidence ? 'צריך עוד פרטים' : 'ההמלצה שלנו'}
+          </div>
           {result.urgentFlag ? (
             <>
               <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
               <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
               <div className="mt-4">
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} />
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
               </div>
-              <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onReferred(description.trim(), result.routedTo)}>
+              <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'הפניה דחופה')}>
                 שליחת הפנייה למרפאה
               </Button>
+            </>
+          ) : result.lowConfidence ? (
+            <>
+              {/* AI couldn't map the text to a treatment — no confident recommendation.
+                  Let the patient add detail and re-analyze, or hand off to a human. */}
+              <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
+              <Button variant="soft" className="w-full mt-4" onClick={() => setResult(null)}>
+                <ChevronLeft size={16} /> נסו לתאר שוב
+              </Button>
+              <div className="mt-4 pt-4 border-t border-teal-100">
+                <p className="text-xs text-slate-500 mb-3">או השאירו פרטים ונחזור אליכם לתיאום מתאים:</p>
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
+                <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'פורטל')}>
+                  <Phone size={16} /> שליחת פנייה למרפאה
+                </Button>
+              </div>
             </>
           ) : (
             <>

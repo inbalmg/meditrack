@@ -3,6 +3,7 @@ import { X, Phone, Sparkles, Clock, UserPlus, UserRound, Check } from 'lucide-re
 import { useData } from '../data/store.jsx'
 import { Card, Button, RequiredMark } from './ui.jsx'
 import { clsx } from './clsx.js'
+import { phoneValid, birthYearValid } from '../lib/validation.js'
 import { VISIT_TYPES } from '../data/seed.js'
 
 const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
@@ -17,12 +18,19 @@ export default function PhoneRequestDialog({ onClose }) {
   const [patientId, setPatientId] = useState('')
   const [newName, setNewName] = useState('')
   const [newPhone, setNewPhone] = useState('')
+  const [newBirthYear, setNewBirthYear] = useState('')
   const [visitType, setVisitType] = useState('')
   const [therapistId, setTherapistId] = useState('')
   const [description, setDescription] = useState('')
   const [preferredTime, setPreferredTime] = useState('גמיש')
 
-  const patientReady = mode === 'existing' ? !!patientId : !!newName.trim()
+  // New patient: name, a valid phone (the reminder channel), and a valid year of
+  // birth are all required. Existing patient: a selection is enough.
+  const newPhoneValid = phoneValid(newPhone)
+  const newBirthYearValid = birthYearValid(newBirthYear)
+  const patientReady = mode === 'existing'
+    ? !!patientId
+    : (!!newName.trim() && newPhoneValid && newBirthYearValid)
   const canSubmit = patientReady && description.trim().length > 0
 
   function handleSubmit(e) {
@@ -30,7 +38,7 @@ export default function PhoneRequestDialog({ onClose }) {
     if (!canSubmit) return
     let pid = patientId
     if (mode === 'new') {
-      const p = addPatient({ name: newName.trim(), phone: newPhone.trim() })
+      const p = addPatient({ name: newName.trim(), phone: newPhone.trim(), birthYear: Number(newBirthYear) })
       pid = p.id
     }
     submitRequest({
@@ -82,9 +90,33 @@ export default function PhoneRequestDialog({ onClose }) {
                     className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-[11px] font-medium text-slate-500">טלפון</span>
-                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="050-0000000" inputMode="tel"
-                    className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500" />
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">טלפון <RequiredMark /></span>
+                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required aria-required="true"
+                    aria-invalid={newPhone.trim().length > 0 && !newPhoneValid} placeholder="050-0000000" inputMode="tel"
+                    className={clsx(
+                      'w-full h-10 rounded-xl ring-1 px-3 text-sm tabular-nums outline-none focus:ring-2',
+                      newPhone.trim().length > 0 && !newPhoneValid
+                        ? 'ring-red-300 focus:ring-red-500'
+                        : 'ring-slate-300 focus:ring-teal-500',
+                    )} />
+                  {newPhone.trim().length > 0 && !newPhoneValid && (
+                    <span className="text-[11px] text-red-500">מספר טלפון נייד לא תקין</span>
+                  )}
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">שנת לידה <RequiredMark /></span>
+                  <input value={newBirthYear} onChange={(e) => setNewBirthYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    required aria-required="true" aria-invalid={newBirthYear.trim().length > 0 && !newBirthYearValid}
+                    inputMode="numeric" maxLength={4} placeholder="1990"
+                    className={clsx(
+                      'w-full h-10 rounded-xl ring-1 px-3 text-sm tabular-nums outline-none focus:ring-2',
+                      newBirthYear.trim().length > 0 && !newBirthYearValid
+                        ? 'ring-red-300 focus:ring-red-500'
+                        : 'ring-slate-300 focus:ring-teal-500',
+                    )} />
+                  {newBirthYear.trim().length > 0 && !newBirthYearValid && (
+                    <span className="text-[11px] text-red-500">שנת לידה לא תקינה</span>
+                  )}
                 </label>
               </div>
             )}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Route, CalendarPlus, ChevronDown, ChevronUp, Phone, User } from 'lucide-react'
+import { X, Route, ChevronDown, ChevronUp, Phone, User } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Badge, Button } from './ui.jsx'
 import ScheduleDialog from './ScheduleDialog.jsx'
@@ -76,8 +76,8 @@ export default function RequestRow({ request, canApprove = true, unread = false,
         {/* Action */}
         <div className={REQ_COLS.action} onClick={(e) => e.stopPropagation()}>
           {canApprove ? (
-            <Button size="sm" variant={urgent ? 'primary' : 'tealOutline'} className="w-full" onClick={() => setScheduling(true)}>
-              <CalendarPlus size={15} /> טפל בבקשה
+            <Button size="sm" variant="primary" className="w-full" onClick={() => setScheduling(true)}>
+              טפל בבקשה
             </Button>
           ) : (
             <span className="text-xs text-slate-500">צפייה בלבד</span>
