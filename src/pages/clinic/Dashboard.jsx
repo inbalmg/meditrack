@@ -90,10 +90,20 @@ export default function Dashboard() {
   // The table shows the newest 5; a "show all" toggle reveals the rest.
   const REQUESTS_PREVIEW = 5
   const displayedPending = showAllRequests ? filteredPending : filteredPending.slice(0, REQUESTS_PREVIEW)
+  // The two chips are single-select: turning one on clears the other, and clicking
+  // an active chip toggles it off (back to showing all).
   const toggleUnreadFilter = () =>
-    setUnreadFilter((f) =>
-      f ? null : new Set(pending.filter((r) => !openedIds.has(r.id)).map((r) => r.id)),
-    )
+    setUnreadFilter((f) => {
+      if (f) return null
+      setUrgentFilter(false)
+      return new Set(pending.filter((r) => !openedIds.has(r.id)).map((r) => r.id))
+    })
+  const toggleUrgentFilter = () =>
+    setUrgentFilter((v) => {
+      if (v) return false
+      setUnreadFilter(null)
+      return true
+    })
 
   // Tasks that matter today: due today or overdue, not yet done — overdue first.
   const todayTasks = useMemo(
@@ -229,7 +239,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     aria-pressed={urgentFilter}
-                    onClick={() => setUrgentFilter((v) => !v)}
+                    onClick={toggleUrgentFilter}
                     title={urgentFilter ? 'הצג את כל הבקשות' : 'סנן לבקשות דחופות בלבד'}
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-3 h-8 text-sm font-medium ring-1 transition',
@@ -273,9 +283,13 @@ export default function Dashboard() {
 
             <div className="overflow-x-auto scroll-thin no-gutter">
               <div className="min-w-[520px]">
-                {/* Column headers */}
-                <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-xs font-medium text-slate-500">
-                  <div className={REQ_COLS.patient}>מטופל</div>
+                {/* Column headers. The patient header mirrors the row's dot + gap
+                    spacer so "מטופל" lines up vertically with the names below. */}
+                <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-sm font-semibold text-slate-600">
+                  <div className={clsx(REQ_COLS.patient, 'flex items-center gap-2')}>
+                    <span className="h-2 w-2 shrink-0" />
+                    מטופל
+                  </div>
                   <div className={REQ_COLS.received}>התקבלה</div>
                   <div className={REQ_COLS.visitType}>סוג ביקור</div>
                   <div className={REQ_COLS.action} />
