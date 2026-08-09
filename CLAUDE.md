@@ -128,8 +128,10 @@ src/
   ומחזיר `{urgency, urgencyScore, urgentFlag, treatmentId, visitType, routedTo, tags, rationale}`.
   עקרון: **בחירת המטופל מנצחת** — hint של מטפל/טיפול גובר; אחרת מיפוי מילות-מפתח (`TREATMENT_RULES`),
   ברירת מחדל `tr1` (פיזיו הערכה). דחיפות = `URGENT_TERMS` → `urgentFlag` → הפניה לאדם.
-- **החלפה ל-LLM אמיתי:** להפוך את `classifyRequest` ל-async ולקרוא ל-API (Claude) עם אותו
-  input/output schema — ה-UI לא משתנה.
+- **מנוע ה-LLM האמיתי (בשרת):** Edge Function `classify-request` מריצה את הסיווג עם **Gemini Flash**
+  (`GEMINI_API_KEY`, מודל דרך `GEMINI_MODEL` בברירת מחדל `gemini-3.1-flash-lite`, פלט JSON מובנה) — עם אותו
+  input/output schema. הפרונטאנד קורא דרך `classifyAsync` (`store.jsx`), ו-`classifyRequest` המקומי משמש
+  כ-Fallback (וגם ה-Edge Function נופלת ל-classifier דטרמיניסטי אם ה-LLM נכשל/חסר מפתח). ה-UI לא משתנה.
 - **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
 
 ## מודל אבטחה — מצב נוכחי ומתוכנן

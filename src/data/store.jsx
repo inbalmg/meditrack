@@ -161,6 +161,19 @@ export function DataProvider({ children }) {
     return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProviderFor(treatmentId) }
   }
 
+  // "Not sure?" recommendation — ask the server (Claude when configured) so the
+  // urgent safety-net gate and the treatment suggestion use the real classifier,
+  // not just local keywords. Falls back to the local classifier if offline/failing.
+  async function classifyAsync(input) {
+    try {
+      const { data, error } = await supabase.functions.invoke('classify-request', { body: input })
+      if (error || !data || data.error) throw error ?? new Error('classify failed')
+      return data
+    } catch {
+      return aiFor(input)
+    }
+  }
+
   // --- Settings ---
   function updateSettings(patch) {
     setSettings((prev) => {
@@ -408,7 +421,7 @@ export function DataProvider({ children }) {
 
   const value = {
     therapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
-    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor,
+    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor, classifyAsync,
     assignees, assigneeById,
     updateSettings, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient,

@@ -4,14 +4,14 @@
 // to this function (roadmap step 6).
 //
 //   input : { description, preferredTherapistId?, visitTypeHint? }
-//   output: { urgency, urgencyScore, urgentFlag, treatmentId, visitType,
-//             routedTo, tags, rationale }
+//   output: { urgency, urgencyScore, urgentFlag, matched, lowConfidence, confidence,
+//             treatmentId, visitType, routedTo, tags, rationale }
 //
 // Treatment/provider IDs are resolved from the DB (real UUIDs) using the CALLER's
-// JWT, so RLS scopes them to the caller's clinic. If ANTHROPIC_API_KEY is set the
-// classification is done by Claude; otherwise a deterministic keyword classifier
-// (faithful to aiClassifier.js) runs. The Claude path is the only thing that needs
-// the secret — it never reaches the browser.
+// JWT, so RLS scopes them to the caller's clinic. If GEMINI_API_KEY is set the
+// classification is done by Gemini (Flash); otherwise a deterministic keyword
+// classifier (faithful to aiClassifier.js) runs. The Gemini path is the only thing
+// that needs the secret — it never reaches the browser.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -47,6 +47,9 @@ const countHits = (text: string, terms: string[]) =>
 
 type Treatment = { id: string; name: string }
 
+const LOW_CONF_RATIONALE =
+  'לא הצלחנו לזהות טיפול מתאים מהתיאור. אפשר להוסיף פרטים ולנסות שוב, או לשלוח פנייה למרפאה ונחזור אליך.'
+
 function buildResult(
   { description = '', preferredTherapistId = null, visitTypeHint = null }:
     { description?: string; preferredTherapistId?: string | null; visitTypeHint?: string | null },
@@ -54,6 +57,7 @@ function buildResult(
   firstProviderFor: (treatmentId: string) => string | null,
   chosenName: string,
   urgency: string,
+  opts: { matched?: boolean; confidence?: number; tags?: string[] } = {},
 ) {
   const byName = Object.fromEntries(treatments.map((t) => [t.name, t]))
   const treatment = byName[chosenName] ?? byName[DEFAULT_TREATMENT] ?? treatments[0]
@@ -61,25 +65,39 @@ function buildResult(
   const text = (description || '').trim()
   const soonHits = countHits(text, SOON_TERMS)
   const urgentFlag = urgency === 'דחוף'
+
+  // `matched` = the treatment came from a real signal (patient hint / keyword / the
+  // model), not the pure default fallback. Non-urgent + unmatched = low confidence:
+  // the UI asks for more detail instead of presenting a guessed default. Mirrors
+  // aiClassifier.js so the local and server classifiers agree.
+  const matched = opts.matched ?? true
+  const lowConfidence = !urgentFlag && !matched
+
   let urgencyScore = 0.2
   if (urgency === 'דחוף') urgencyScore = Math.min(0.98, 0.75 + countHits(text, URGENT_TERMS) * 0.08)
   else if (urgency === 'בהקדם') urgencyScore = Math.min(0.7, 0.4 + soonHits * 0.1)
+  const confidence = opts.confidence ?? (matched ? 0.8 : 0.35)
 
   const routedTo = preferredTherapistId || firstProviderFor(treatment.id)
 
-  const tags: string[] = []
-  if (urgency === 'דחוף') tags.push('דחוף — לבדיקת המרפאה')
-  if (soonHits > 0 && urgency !== 'דחוף') tags.push('רגיש לזמן')
-  if (countHits(text, ['גב', 'ברך', 'פציעה', 'ספורט'])) tags.push('אורתופדי')
-  if (countHits(text, ['מתח', 'הרפיה', 'לחץ'])) tags.push('הרפיה')
-  if (tags.length === 0) tags.push('שגרתי')
+  // Prefer model-supplied tags; else derive from keywords (deterministic parity).
+  const tags: string[] = (opts.tags ?? []).filter(Boolean)
+  if (tags.length === 0) {
+    if (urgency === 'דחוף') tags.push('דחוף — לבדיקת המרפאה')
+    if (soonHits > 0 && urgency !== 'דחוף') tags.push('רגיש לזמן')
+    if (countHits(text, ['גב', 'ברך', 'פציעה', 'ספורט'])) tags.push('אורתופדי')
+    if (countHits(text, ['מתח', 'הרפיה', 'לחץ'])) tags.push('הרפיה')
+    if (tags.length === 0) tags.push('שגרתי')
+  }
 
   const rationale = urgentFlag
     ? 'זוהו ביטויים שעשויים להעיד על מצב שדורש בדיקה — הופנה למרפאה לתיאום, במקום הזמנה עצמית.'
-    : `לפי התיאור, הטיפול המתאים ביותר הוא "${treatment.name}". ניתן לאשר ולהציע מועד.`
+    : lowConfidence
+      ? LOW_CONF_RATIONALE
+      : `לפי התיאור, הטיפול המתאים ביותר הוא "${treatment.name}". ניתן לאשר ולהציע מועד.`
 
   return {
-    urgency, urgencyScore, urgentFlag,
+    urgency, urgencyScore, urgentFlag, matched, lowConfidence, confidence,
     treatmentId: treatment.id, visitType: treatment.name,
     routedTo, tags, rationale,
   }
@@ -103,52 +121,91 @@ function classifyDeterministic(input, treatments, firstProviderFor) {
       }
     }
   }
-  return buildResult(input, treatments, firstProviderFor, chosen ?? DEFAULT_TREATMENT, urgency)
+  return buildResult(input, treatments, firstProviderFor, chosen ?? DEFAULT_TREATMENT, urgency, { matched: chosen != null })
 }
 
-// Claude classifier — same schema; runs only when ANTHROPIC_API_KEY is set.
-async function classifyWithClaude(input, treatments, firstProviderFor, apiKey: string) {
-  const { default: Anthropic } = await import('npm:@anthropic-ai/sdk')
-  const client = new Anthropic({ apiKey })
+// --- Gemini classifier ---
+// Same input/output schema; runs only when GEMINI_API_KEY is set. Calls the Gemini
+// Flash model via the REST API with structured JSON output (responseSchema), so the
+// parsed object maps 1:1 onto buildResult — identical shape to the deterministic path.
+const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.1-flash-lite'
+
+const CLASSIFY_SYSTEM =
+  'אתה ממיין פניות למרפאת טיפולים (פיזיותרפיה ורפואה משלימה). בחר את הטיפול המתאים ' +
+  'ביותר מתוך הרשימה, וקבע דחיפות: "דחוף" אם התיאור מרמז על מצב שמצריך בדיקה אנושית, ' +
+  '"בהקדם" אם רגיש לזמן, אחרת "רגיל". בחירת המטופל (visitTypeHint) גוברת אם ניתנה. ' +
+  'החזר confidence בין 0 ל-1 לרמת הביטחון בהתאמת הטיפול, וקבע needsMoreInfo=true אם התיאור ' +
+  'כללי או קצר מדי מכדי לזהות טיפול מתאים בביטחון. הוסף tags קצרים בעברית שיסייעו לצוות ' +
+  '(למשל "אורתופדי", "רגיש לזמן"); החזר מערך ריק אם אין.'
+
+async function classifyWithGemini(input, treatments, firstProviderFor, apiKey: string) {
   const names = treatments.map((t) => t.name)
-  const msg = await client.messages.create({
-    model: 'claude-opus-5',
-    max_tokens: 1024,
-    output_config: {
-      effort: 'low',
-      format: {
-        type: 'json_schema',
-        schema: {
-          type: 'object',
-          properties: {
-            treatmentName: { type: 'string', enum: names },
-            urgency: { type: 'string', enum: ['רגיל', 'בהקדם', 'דחוף'] },
-            rationale: { type: 'string' },
-          },
-          required: ['treatmentName', 'urgency', 'rationale'],
-          additionalProperties: false,
-        },
+
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0,
+    maxOutputTokens: 4096,
+    responseMimeType: 'application/json',
+    responseSchema: {
+      type: 'OBJECT',
+      properties: {
+        treatmentName: { type: 'STRING', enum: names },
+        urgency: { type: 'STRING', enum: ['רגיל', 'בהקדם', 'דחוף'] },
+        confidence: { type: 'NUMBER' },
+        needsMoreInfo: { type: 'BOOLEAN' },
+        tags: { type: 'ARRAY', items: { type: 'STRING' } },
+        rationale: { type: 'STRING' },
       },
+      required: ['treatmentName', 'urgency', 'confidence', 'needsMoreInfo', 'tags', 'rationale'],
+      propertyOrdering: ['treatmentName', 'urgency', 'confidence', 'needsMoreInfo', 'tags', 'rationale'],
     },
-    system:
-      'אתה ממיין פניות למרפאת טיפולים (פיזיותרפיה ורפואה משלימה). בחר את הטיפול המתאים ' +
-      'ביותר מתוך הרשימה, וקבע דחיפות: "דחוף" אם התיאור מרמז על מצב שמצריך בדיקה אנושית, ' +
-      '"בהקדם" אם רגיש לזמן, אחרת "רגיל". בחירת המטופל (visitTypeHint) גוברת אם ניתנה.',
-    messages: [{
-      role: 'user',
-      content: JSON.stringify({
-        description: input.description,
-        visitTypeHint: input.visitTypeHint,
-        availableTreatments: names,
+  }
+  // Gemini models "think" by default and thinking spends the output budget; keep it
+  // minimal for this small structured task so the budget goes to the JSON. Gemini 2.5
+  // uses thinkingBudget (0 disables); Gemini 3.x uses thinkingLevel.
+  if (GEMINI_MODEL.includes('2.5')) generationConfig.thinkingConfig = { thinkingBudget: 0 }
+  else if (GEMINI_MODEL.startsWith('gemini-3')) generationConfig.thinkingConfig = { thinkingLevel: 'low' }
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: CLASSIFY_SYSTEM }] },
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: JSON.stringify({
+              description: input.description,
+              visitTypeHint: input.visitTypeHint,
+              availableTreatments: names,
+            }),
+          }],
+        }],
+        generationConfig,
       }),
-    }],
-  })
-  const block = msg.content.find((b) => b.type === 'text')
-  const parsed = JSON.parse(block?.text ?? '{}')
+    },
+  )
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  // With responseMimeType=application/json the model's JSON arrives as text part(s).
+  const text = (data?.candidates?.[0]?.content?.parts ?? [])
+    .map((p: { text?: string }) => p.text ?? '').join('')
+  const parsed = JSON.parse(text || '{}')
+
   const urgency = ['רגיל', 'בהקדם', 'דחוף'].includes(parsed.urgency) ? parsed.urgency : 'רגיל'
-  const chosen = names.includes(parsed.treatmentName) ? parsed.treatmentName : DEFAULT_TREATMENT
-  const result = buildResult(input, treatments, firstProviderFor, chosen, urgency)
-  if (parsed.rationale && !result.urgentFlag) result.rationale = parsed.rationale
+  const known = names.includes(parsed.treatmentName)
+  const chosen = known ? parsed.treatmentName : DEFAULT_TREATMENT
+  // The model owns treatment/urgency/confidence/tags; buildResult still fills the
+  // deterministic parts (routing, score bounds) and derives lowConfidence.
+  const matched = known && parsed.needsMoreInfo !== true
+  const confidence = typeof parsed.confidence === 'number'
+    ? Math.max(0, Math.min(1, parsed.confidence)) : undefined
+  const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t: unknown) => typeof t === 'string') : []
+  const result = buildResult(input, treatments, firstProviderFor, chosen, urgency, { matched, confidence, tags })
+  // Keep the model's wording for a normal recommendation; urgent + low-confidence
+  // use the standard safety-net / "add detail" copy from buildResult.
+  if (parsed.rationale && !result.urgentFlag && !result.lowConfidence) result.rationale = parsed.rationale
   return result
 }
 
@@ -182,17 +239,27 @@ Deno.serve(async (req) => {
     }
     const firstProviderFor = (id: string) => provByTreatment.get(id) ?? null
 
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+    const apiKey = Deno.env.get('GEMINI_API_KEY')
     let result
+    let engine = 'deterministic'
     if (apiKey) {
       try {
-        result = await classifyWithClaude(input, treatments, firstProviderFor, apiKey)
-      } catch (_e) {
-        result = classifyDeterministic(input, treatments, firstProviderFor) // graceful fallback
+        result = await classifyWithGemini(input, treatments, firstProviderFor, apiKey)
+        engine = GEMINI_MODEL
+      } catch (e) {
+        // Don't swallow silently — a failing Gemini path must be observable in logs,
+        // otherwise it looks identical to "no key" and degrades quality unnoticed.
+        console.error('[classify-request] Gemini path failed, using deterministic fallback:', e?.message ?? e)
+        result = classifyDeterministic(input, treatments, firstProviderFor)
       }
     } else {
+      console.warn('[classify-request] GEMINI_API_KEY not set — using deterministic keyword classifier')
       result = classifyDeterministic(input, treatments, firstProviderFor)
     }
+
+    // Minimal success log: engine + non-sensitive classification result only
+    // (no patient data, request text, or secrets).
+    console.log('[classify-request] classified via', engine, '->', { visitType: result.visitType, urgency: result.urgency })
 
     return new Response(JSON.stringify(result), { headers: JSON_HEADERS })
   } catch (e) {

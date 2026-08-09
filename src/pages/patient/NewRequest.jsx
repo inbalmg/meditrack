@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock,
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Loader2,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
@@ -406,17 +406,24 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
 }
 
 function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, contactValid, onBack, onProceed, onSendToClinic }) {
-  const { therapistById, treatmentById, aiFor } = useData()
+  const { therapistById, treatmentById, classifyAsync } = useData()
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
   const canAnalyze = meaningfulDescription(description)
 
-  function analyze(e) {
+  async function analyze(e) {
     e.preventDefault()
-    if (!canAnalyze) return
-    // Use the store's aiFor (not classifyRequest directly): it remaps the
-    // classifier's seed ids to the real DB UUIDs the lookups are keyed by.
-    setResult(aiFor({ description: description.trim() }))
+    if (!canAnalyze || analyzing) return
+    // Await the server classifier (Claude when configured) so the urgent
+    // safety-net gate uses the real AI; classifyAsync falls back to the local
+    // classifier if the call fails, and returns real DB UUIDs either way.
+    setAnalyzing(true)
+    try {
+      setResult(await classifyAsync({ description: description.trim() }))
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   return (
@@ -439,7 +446,11 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirth
         <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Sparkles size={12} /> ה-AI ימליץ על טיפול ומטפל, ויזהה מקרים שעדיף להפנות למרפאה</p>
       </div>
       {!result && (
-        <Button type="submit" size="lg" className="w-full" disabled={!canAnalyze}><Sparkles size={16} /> קבלת המלצה</Button>
+        <Button type="submit" size="lg" className="w-full" disabled={!canAnalyze || analyzing}>
+          {analyzing
+            ? <><Loader2 size={16} className="animate-spin" /> מנתח…</>
+            : <><Sparkles size={16} /> קבלת המלצה</>}
+        </Button>
       )}
 
       {result && (
