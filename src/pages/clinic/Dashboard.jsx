@@ -136,15 +136,19 @@ export default function Dashboard() {
   // the rest of today's appointments (finished / no-show / unmarked) are the context.
   const todayTotal = todayAppts.length
   const todayDone = todayTotal - visibleCount
+  // Today's completed visits stay on the board all day (muted) so the desk keeps a
+  // record of what already happened — they're context, not part of the "remaining" count.
+  const completedToday = useMemo(() => todayAppts.filter((a) => a.status === 'הסתיים'), [todayAppts])
+  const timelineToday = useMemo(() => [...visibleToday, ...completedToday], [visibleToday, completedToday])
   const todayGroups = useMemo(() => {
     const map = new Map()
-    for (const a of visibleToday) {
+    for (const a of timelineToday) {
       const key = a.start.getTime()
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(a)
     }
     return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([time, appts]) => ({ time, appts }))
-  }, [visibleToday])
+  }, [timelineToday])
 
   // "הבא בתור" = התור הקרוב ביותר שעדיין לא התחיל (מבין המוצגים).
   const nextAppt = visibleToday.find((a) => a.start.getTime() >= now.getTime())
@@ -440,14 +444,20 @@ export default function Dashboard() {
                       {group.appts.map((a, i) => {
                         const p = patientById[a.patientId]
                         const t = therapistById[a.therapistId]
+                        // Completed visits stay listed but muted (record, not "to-do").
+                        const done = a.status === 'הסתיים'
                         return (
                           <div
                             key={a.id}
-                            className={`flex items-center gap-2 ${i > 0 ? 'mt-2 pt-2 border-t border-slate-100' : ''}`}
+                            className={clsx(
+                              'flex items-center gap-2',
+                              i > 0 && 'mt-2 pt-2 border-t border-slate-100',
+                              done && 'opacity-60',
+                            )}
                           >
                             <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                              <p className={clsx('text-sm font-medium truncate', done ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
                               <p className="text-xs text-slate-600 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
                             </div>
                             <AppointmentActions appt={a} compact />

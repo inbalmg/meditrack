@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { ListChecks, Zap, User, Clock, Eye } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ListChecks, Zap, User, Clock, Plus, Check, ArrowLeftRight, Pencil, Trash2 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
-import { Card, Badge, Empty } from '../../components/ui.jsx'
+import { Card, Badge, Button, Empty } from '../../components/ui.jsx'
+import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { friendlyDate, hhmm } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
@@ -12,73 +13,176 @@ const COLUMNS = [
   { key: 'הושלם', accent: 'bg-emerald-500' },
 ]
 
-export default function DoctorTasks() {
-  const { tasks, patientById } = useData()
-  const { role } = useSession()
-  const myId = role.therapistId
+const NEXT = { פתוח: 'בטיפול', בטיפול: 'הושלם' }
 
-  // Only tasks assigned to (owned by) this therapist — read-only view.
-  const myTasks = useMemo(() => tasks.filter((t) => t.assigneeId === myId), [tasks, myId])
+// Date <-> <input type="datetime-local"> value (local time, minute precision).
+const toLocalInput = (d) => {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+export default function DoctorTasks() {
+  const { tasks, patientById, addTask, updateTask, setTaskStatus, deleteTask } = useData()
+  const { role, userId } = useSession()
+  const myId = role.therapistId
+  // Form target: null (closed) · 'new' (create) · a task object (edit).
+  const [editing, setEditing] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+
+  // Only MY tasks: assigned to me OR created by me. (RLS already scopes the mirror to
+  // these rows; the filter keeps the intent explicit and future-proof.)
+  const myTasks = useMemo(
+    () => tasks.filter((t) => t.assigneeId === myId || t.createdBy === userId),
+    [tasks, myId, userId],
+  )
 
   return (
     <div className="space-y-5 animate-fade">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">לוח משימות</h1>
-        <p className="text-slate-500 mt-0.5">המשימות שמשויכות אליי · מעקב בלבד</p>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">לוח משימות</h1>
+          <p className="text-slate-500 mt-0.5">המשימות שלי · יצירה ועדכון סטטוס</p>
+        </div>
+        <Button onClick={() => setEditing((e) => (e === 'new' ? null : 'new'))}>
+          <Plus size={17} /> משימה חדשה
+        </Button>
       </div>
 
-      {myTasks.length === 0 ? (
-        <Card className="py-4">
-          <Empty icon={ListChecks} title="אין משימות משויכות אליך" />
-        </Card>
-      ) : (
-        <div className="grid md:grid-cols-3 gap-4">
-          {COLUMNS.map((col) => {
-            const items = myTasks.filter((t) => t.status === col.key)
-            return (
-              <div key={col.key} className="flex flex-col">
-                <div className="flex items-center gap-2 mb-3 px-1">
-                  <span className={clsx('h-2.5 w-2.5 rounded-full', col.accent)} />
-                  <h2 className="font-semibold text-slate-700">{col.key}</h2>
-                  <span className="text-sm text-slate-400">· {items.length}</span>
-                </div>
-                <div className="space-y-3 flex-1 min-h-24">
-                  {items.length === 0 ? (
-                    <div className="rounded-2xl border-2 border-dashed border-slate-200 py-8">
-                      <Empty icon={ListChecks} title="אין משימות" />
-                    </div>
-                  ) : (
-                    items.map((t) => {
-                      const patient = t.patientId ? patientById[t.patientId] : null
-                      return (
-                        <Card key={t.id} className="p-4">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-slate-800 leading-snug">{t.title}</p>
+      {editing && (
+        <TaskForm
+          initial={editing === 'new' ? null : editing}
+          onCancel={() => setEditing(null)}
+          onSubmit={(data) => {
+            if (editing === 'new') addTask({ ...data, assigneeId: myId })
+            else updateTask(editing.id, data)
+            setEditing(null)
+          }}
+        />
+      )}
+
+      <div className="grid md:grid-cols-3 gap-4">
+        {COLUMNS.map((col) => {
+          const items = myTasks.filter((t) => t.status === col.key)
+          return (
+            <div key={col.key} className="flex flex-col">
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <span className={clsx('h-2.5 w-2.5 rounded-full', col.accent)} />
+                <h2 className="font-semibold text-slate-700">{col.key}</h2>
+                <span className="text-sm text-slate-400">· {items.length}</span>
+              </div>
+              <div className="space-y-3 flex-1 min-h-24">
+                {items.length === 0 ? (
+                  <div className="rounded-2xl border-2 border-dashed border-slate-200 py-8">
+                    <Empty icon={ListChecks} title="אין משימות" />
+                  </div>
+                ) : (
+                  items.map((t) => {
+                    const patient = t.patientId ? patientById[t.patientId] : null
+                    return (
+                      <Card key={t.id} className="p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium text-slate-800 leading-snug min-w-0">{t.title}</p>
+                          <div className="flex items-center gap-1 shrink-0">
                             {t.source === 'אוטומציה' ? (
                               <Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>
                             ) : (
                               <Badge tone="slate"><User size={12} /> ידני</Badge>
                             )}
+                            <button
+                              type="button"
+                              title="עריכת משימה"
+                              onClick={() => setEditing(t)}
+                              className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              title="מחיקת משימה"
+                              onClick={() => setConfirmDelete(t)}
+                              className="p-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
-                          {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
-                          <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
-                            <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
-                            {patient && <span>{patient.name}</span>}
+                        </div>
+                        {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
+                        <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+                          <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
+                          {patient && <span>{patient.name}</span>}
+                        </div>
+                        {NEXT[t.status] && (
+                          <div className="mt-3 pt-3 border-t border-slate-100">
+                            <Button variant="soft" size="sm" className="w-full" onClick={() => setTaskStatus(t.id, NEXT[t.status])}>
+                              {t.status === 'פתוח' ? <ArrowLeftRight size={14} /> : <Check size={14} />}
+                              העבר ל״{NEXT[t.status]}״
+                            </Button>
                           </div>
-                        </Card>
-                      )
-                    })
-                  )}
-                </div>
+                        )}
+                      </Card>
+                    )
+                  })
+                )}
               </div>
-            )
-          })}
-        </div>
-      )}
+            </div>
+          )
+        })}
+      </div>
 
-      <p className="text-[11px] text-slate-400 flex items-center gap-1 px-1">
-        <Eye size={13} /> סטטוס המשימות מנוהל ע״י המזכירות
-      </p>
+      {confirmDelete && (
+        <ConfirmDialog
+          title="למחוק את המשימה?"
+          message={`"${confirmDelete.title}" תימחק לצמיתות. לא ניתן לשחזר.`}
+          confirmLabel="מחיקה"
+          onConfirm={() => { deleteTask(confirmDelete.id); setConfirmDelete(null) }}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
+  )
+}
+
+// Create or edit one of the therapist's own tasks. No assignee picker — a therapist
+// can only own their tasks, so new tasks are assigned to them by the parent.
+function TaskForm({ initial, onSubmit, onCancel }) {
+  const isEdit = !!initial
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [note, setNote] = useState(initial?.note ?? '')
+  const [due, setDue] = useState(toLocalInput(initial?.due instanceof Date ? initial.due : new Date()))
+
+  const inputCls = 'h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500'
+
+  return (
+    <Card className="p-5">
+      <h3 className="font-semibold text-slate-800 mb-3">{isEdit ? 'עריכת משימה' : 'משימה חדשה'}</h3>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <input
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="כותרת המשימה"
+          className={clsx(inputCls, 'sm:col-span-2')}
+        />
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500">תאריך יעד</span>
+          <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} className={inputCls} />
+        </label>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="הערה (רשות)"
+          className={clsx(inputCls, 'sm:col-span-2')}
+        />
+      </div>
+      <div className="flex gap-2 mt-4">
+        <Button
+          disabled={!title.trim()}
+          onClick={() => onSubmit({ title: title.trim(), note: note.trim(), due: due ? new Date(due) : new Date() })}
+        >
+          {isEdit ? <><Check size={16} /> שמירה</> : <><Plus size={16} /> הוספה</>}
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>ביטול</Button>
+      </div>
+    </Card>
   )
 }

@@ -227,6 +227,12 @@ export const seedTasks = [
   // משימה ידנית שכבר עברה את זמנה — משאירה את מצב ה"באיחור" האדום מודגם במערכת.
   { id: 'k3', title: 'לחזור עם המלצת תרגילים — אבי מזרחי', patientId: 'p2', assigneeId: 't1', createdAt: addHours(today, -4), due: addHours(today, -3), status: 'בטיפול', source: 'ידני', note: 'להכין ולשלוח דף תרגילים לבית.' },
   { id: 'k4', title: 'תזכורת המשך סדרה — תמר אוחיון', patientId: 'p6', assigneeId: 't2', createdAt: addHours(today, -5), due: addHours(today, AUTO_TASK_DUE_HOURS + 4), status: 'פתוח', source: 'אוטומציה', note: 'לוודא קביעת הטיפול הבא בסדרת הדיקור.' },
+  // משימות שהושלמו — נושאות `completedAt` (רגע הסימון כ"הושלם"). לוח המשימות מסנן את
+  // עמודת "הושלם" לפי הטווח הזה (היום/השבוע/הכל) כדי שלא תיערם. פרוסות על פני הטווחים
+  // כדי להדגים את הסינון: אחת מהיום, אחת מהשבוע, אחת ישנה (מוצגת רק ב"הכל").
+  { id: 'k5', title: 'שליחת סיכום טיפול — דנה לוי', patientId: 'p1', assigneeId: 't1', createdAt: addHours(today, -6), due: addHours(today, -4), status: 'הושלם', source: 'ידני', completedAt: addHours(today, -3), note: 'נשלח סיכום ותרגילים במייל.' },
+  { id: 'k6', title: 'פולו-אפ אי-הגעה — יוסי כהן', patientId: 'p5', assigneeId: 't2', createdAt: addHours(today, -80), due: addHours(today, -76), status: 'הושלם', source: 'אוטומציה', completedAt: addHours(today, -72), note: 'תואם תור חלופי בטלפון.' },
+  { id: 'k7', title: 'עדכון פרטי קשר — אבי מזרחי', patientId: 'p2', assigneeId: 't3', createdAt: addHours(today, -250), due: addHours(today, -246), status: 'הושלם', source: 'ידני', completedAt: addHours(today, -240), note: 'עודכן מספר טלפון חדש.' },
 ]
 
 // Helper: format for display

@@ -87,7 +87,10 @@ src/
   pages/
     Login.jsx              שתי כניסות: צוות (3 תפקידים) · מטופל (רשום 'p1' / חדש null → setCurrentPatient)
     clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
-    doctor/  DoctorDay · DoctorCalendar · VisitCard   (צפייה בלבד)
+    doctor/  DoctorDay · DoctorCalendar · VisitCard (תיק מטופל: סיבת הפנייה + AI, **סיכום ביקור** לעריכה
+             (clinical_note לביקור הנוכחי) — **פעיל רק כשסטטוס הביקור "הגיע"**, נעול לביקור עתידי/אחר,
+             **היסטוריית ביקורים** חוצת-מטפלים — כל הסקשן מתקפל בכפתור chevron
+             (מקופל כברירת מחדל), ובתוכו אקורדיון פר-ביקור עם סיכום קליני · תרופות)
     patient/ NewRequest (הזמנה עצמית רב-שלבית + "לא בטוח" + פרטי קשר/טלפון) · MyAppointments (ביטול/שינוי)
 ```
 
@@ -97,7 +100,7 @@ src/
 |-------|------|------|
 | מזכירות (`secretary`) | `/clinic` | בקשות (חריגים), יומן, משימות, הגדרות · **ללא דוחות** |
 | מנהל/ת (`manager`) | `/clinic` | הכל + דוחות |
-| מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן/המשימות שלו (`therapistId: t1`) |
+| מטפל (`therapist`) | `/doctor` | יומן בצפייה · לוח המשימות שלו: יצירה/עדכון/**מחיקה** של המשימות שלו בלבד · תיק מטופל: סימון **הגיע/הסתיים** לביקור שלו + כתיבת **סיכום ביקור** (פעיל בסטטוס הגיע/הסתיים) (`therapistId: t1`) |
 | מטופל (`patient`) | `/patient` | הזמנה עצמית + מעקב (רספונסיבי — מובייל ודסקטופ) |
 
 `RequireRole` (`App.jsx`) חוסם גישה חוצת-אזור ומפנה ל-`role.home`. שתי כניסות נפרדות.
@@ -110,9 +113,12 @@ src/
 - **ניהול טיפולים (Settings):** `addTreatment` / `updateTreatment` / `removeTreatment`.
 - **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`, `updatePatient`.
 - **מטופל מחובר:** `currentPatientId` (state) + `setCurrentPatient(id|null)` — נקבע בכניסת המטופל.
-- **סטטוס/משימות:** `setAppointmentStatus` (אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
+- **לוחות יומיים (Dashboard/DoctorDay):** תורי **היום שהסתיימו** נשארים גלויים כל היום בעיצוב **מעומעם**
+  (opacity + badge) — רקורד ולא "לטיפול"; אינם נספרים ב"נותרו להיום". (תורי-עבר לא-סומנו עדיין הולכים לתור הסקירה.)
+- **סטטוס/משימות:** `setAppointmentStatus` (role-aware: מטפל → RPC `set_appointment_status`, צוות → UPDATE ישיר;
+  אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
   `bulkMarkNoShow(ids)` (סימון מרוכז של תורי-עבר שלא טופלו כ"לא הגיע", כל אחד מוליד משימת פולו-אפ),
-  `setTaskStatus`, `addTask`.
+  `saveClinicalNote(apptId, note)` (סיכום ביקור → `set_clinical_note` RPC), `setTaskStatus`, `addTask`, `updateTask`, `deleteTask`.
 - **תורים שלא טופלו (unresolved past):** תור "קבוע" שהמשבצת שלו הסתיימה ולא סומן הגיע/לא-הגיע = מצב
   לא-פתור שמעוות דוחות. הזיהוי הוא **state נגזר** (`lib/appointments.js` → `isUnresolvedPast`/`selectUnresolved`),
   ללא מוטציה שקטה; הפתרון אנושי. **UX היברידי:** Dashboard מציג רק **KPI קומפקטי** עם המונה שמנווט
@@ -151,7 +157,15 @@ Edge: `classify-request` (סיווג) ו-`send-reminder` (וואטסאפ/SMS) מ
 - **RBAC:** תפקיד יחיד per-user ב-App Metadata (לא ניתן לשינוי מהלקוח); 4 התפקידים של `ROLES`; Least Privilege.
 - **Multi-tenant:** כל רשומה נושאת `clinic_id` → בידוד מלא בין קליניקות.
 - **RLS = שכבת האכיפה המרכזית:** מטופל→`patient_id = auth.uid()`; מטפל→`therapist_id = auth.uid()`
-  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד.
+  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד. **היסטוריית ביקורים:** מטפל
+  רשאי לקרוא את **כל** התורים של מטופל שהוא מטפל בו (`app.therapist_treats_patient(patient_id)`, migration 13)
+  — לתיק המטופל חוצה-המטפלים; מסכי היום/היומן שלו עדיין מסננים ל-`therapist_id` שלו ב-UI. התור נושא
+  `clinical_note` (סיכום קליני שמוצג בהיסטוריה). מטפל מקדם את הביקור **שלו** ל-`הגיע`/`הסתיים` דרך RPC
+  `set_appointment_status` (migration 15) וכותב את ה-`clinical_note` דרך RPC `set_clinical_note` (migration 14) —
+  שניהם SECURITY DEFINER, מעדכנים רק את העמודה הרלוונטית ורק כשה-`therapist_id` שלו; ללא הרשאת UPDATE
+  רחבה על appointments (סימון `לא הגיע` נשאר אצל המזכירה בלבד). עריכת הסיכום ב-UI פעילה רק בסטטוס הגיע/הסתיים. **משימות:** מטפל רשאי לקרוא/ליצור/לעדכן/**למחוק**
+  רק את המשימות שלו — משויכות אליו (`assignee_id = app.therapist_id()`) או שיצר (`created_by = auth.uid()`);
+  יצירה מוצמדת אליו כאחראי (migrations 12, 14).
 - **Defense in depth:** הגנת ה-Frontend (Route Guards / הסתרת כפתורים) = UX בלבד; האכיפה המחייבת
   בשרת (JWT + RLS + Edge Functions). מפתחות סוד רק בשרת. עיקרון: *Never trust the client.*
 

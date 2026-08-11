@@ -40,16 +40,18 @@ const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
 const mapAppt = (r) => ({
   id: r.id, patientId: r.patient_id, therapistId: r.therapist_id, treatmentId: r.treatment_id,
   start: new Date(r.start), durationMin: r.duration_min, visitType: r.visit_type,
-  status: r.status, reason: r.reason, source: r.source,
+  status: r.status, reason: r.reason, source: r.source, clinicalNote: r.clinical_note ?? null,
 })
 const mapTask = (r) => ({
   id: r.id, title: r.title, patientId: r.patient_id, assigneeId: r.assignee_id,
+  createdBy: r.created_by ?? null,
   createdAt: new Date(r.created_at), sourceAt: r.source_at ? new Date(r.source_at) : undefined,
   due: r.due ? new Date(r.due) : new Date(), status: r.status, source: r.source, note: r.note,
+  completedAt: r.completed_at ? new Date(r.completed_at) : undefined,
 })
 
 export function DataProvider({ children }) {
-  const { status, role, clinicId } = useSession()
+  const { status, role, clinicId, userId } = useSession()
 
   const [requests, setRequests] = useState([])
   const [appointments, setAppointments] = useState([])
@@ -357,7 +359,14 @@ export function DataProvider({ children }) {
 
   function setAppointmentStatus(apptId, newStatus) {
     setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a)))
-    persist(supabase.from('appointments').update({ status: newStatus }).eq('id', apptId), 'setAppointmentStatus')
+    // Therapists lack a direct UPDATE grant on appointments (RLS); they persist their
+    // own arrived/completed changes through a narrow RPC (migration 15). Staff update
+    // the row directly (RLS-scoped by clinic).
+    if (role?.id === 'therapist') {
+      persist(supabase.rpc('set_appointment_status', { p_appt: apptId, p_status: newStatus }), 'setAppointmentStatus')
+    } else {
+      persist(supabase.from('appointments').update({ status: newStatus }).eq('id', apptId), 'setAppointmentStatus')
+    }
     if (newStatus === 'לא הגיע' && settings.followUpOnNoShow) {
       const appt = appointments.find((a) => a.id === apptId)
       if (appt) {
@@ -385,20 +394,36 @@ export function DataProvider({ children }) {
     }
   }
 
+  // A therapist authors the clinical note (visit summary) on a visit they conducted.
+  // Persisted via a narrow SECURITY DEFINER RPC that writes ONLY clinical_note for the
+  // caller's own appointment (see migration 14) — no broad UPDATE grant on appointments.
+  function saveClinicalNote(apptId, note) {
+    const value = note?.trim() ? note.trim() : null
+    setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, clinicalNote: value } : a)))
+    persist(supabase.rpc('set_clinical_note', { p_appt: apptId, p_note: value }), 'saveClinicalNote')
+  }
+
   function setTaskStatus(taskId, newStatus) {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)))
-    persist(supabase.from('tasks').update({ status: newStatus }).eq('id', taskId), 'setTaskStatus')
+    // Stamp completedAt when a task enters "הושלם"; clear it if it ever leaves,
+    // so the Task Board recency filter can bucket completed work by completion time.
+    const completedAt = newStatus === 'הושלם' ? new Date() : undefined
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, completedAt } : t)))
+    persist(
+      supabase.from('tasks').update({ status: newStatus, completed_at: completedAt ? completedAt.toISOString() : null }).eq('id', taskId),
+      'setTaskStatus',
+    )
   }
 
   function addTask({ title, patientId, assigneeId, due, note }) {
     const task = {
       id: uuid(), title, patientId: patientId || null, assigneeId: assigneeId || null,
+      createdBy: userId ?? null,
       createdAt: new Date(), due: due || new Date(), status: 'פתוח', source: 'ידני', note: note || '',
     }
     setTasks((prev) => [task, ...prev])
     persist(supabase.from('tasks').insert({
       id: task.id, clinic_id: clinicId, title, patient_id: task.patientId, assignee_id: task.assigneeId,
-      due: task.due.toISOString(), status: 'פתוח', source: 'ידני', note: task.note,
+      created_by: task.createdBy, due: task.due.toISOString(), status: 'פתוח', source: 'ידני', note: task.note,
     }), 'addTask')
   }
 
@@ -426,7 +451,7 @@ export function DataProvider({ children }) {
     updateSettings, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient,
     bookAppointment, cancelAppointment, submitRequest, approveRequest, rejectRequest,
-    setAppointmentStatus, bulkMarkNoShow, setTaskStatus, addTask, updateTask, deleteTask,
+    setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
   }
 
   const gated = status === 'loading' || (status === 'authed' && !ready)

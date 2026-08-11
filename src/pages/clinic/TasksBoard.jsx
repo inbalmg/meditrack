@@ -6,6 +6,7 @@ import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
 import UnresolvedAppointments from '../../components/UnresolvedAppointments.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { friendlyDate, hhmm } from '../../lib/format.js'
+import { isAfter, startOfDay, subDays } from 'date-fns'
 import { clsx } from '../../components/clsx.js'
 
 const COLUMNS = [
@@ -15,6 +16,26 @@ const COLUMNS = [
 ]
 
 const NEXT = { פתוח: 'בטיפול', בטיפול: 'הושלם' }
+
+// Recency windows for the "הושלם" column, so completed tasks don't pile up. Default
+// is the recent window ("השבוע"); "הכל" reveals everything so nothing feels lost.
+const DONE_RANGES = [
+  { key: 'today', label: 'היום' },
+  { key: 'week', label: 'השבוע' },
+  { key: 'all', label: 'הכל' },
+]
+
+// When a completed task was finished. Falls back to due/createdAt for legacy rows
+// with no completedAt stamp, so the filter still behaves reasonably without backfill.
+const doneAnchor = (t) => t.completedAt ?? t.due ?? t.createdAt
+
+function withinRange(t, range) {
+  if (range === 'all') return true
+  const anchor = doneAnchor(t)
+  if (!anchor) return true
+  const cutoff = range === 'today' ? startOfDay(new Date()) : subDays(new Date(), 7)
+  return isAfter(anchor, cutoff)
+}
 
 // Date <-> <input type="datetime-local"> value (local time, minute precision).
 const toLocalInput = (d) => {
@@ -27,6 +48,8 @@ export default function TasksBoard() {
   // Form target: null (closed) · 'new' (create) · a task object (edit).
   const [editing, setEditing] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  // Recency window for the completed column (default: recent week).
+  const [doneRange, setDoneRange] = useState('week')
 
   // Deep-link target from the Dashboard "תורים שלא סומנו" KPI: scroll the review
   // queue into view and briefly ring it so the redirect lands where it should.
@@ -70,18 +93,51 @@ export default function TasksBoard() {
 
       <div className="grid md:grid-cols-3 gap-4">
         {COLUMNS.map((col) => {
-          const items = tasks.filter((t) => t.status === col.key)
+          const isDone = col.key === 'הושלם'
+          const all = tasks.filter((t) => t.status === col.key)
+          // The completed column is windowed by recency; other columns show everything.
+          const items = isDone ? all.filter((t) => withinRange(t, doneRange)) : all
+          const hidden = all.length - items.length
           return (
             <div key={col.key} className="flex flex-col">
               <div className="flex items-center gap-2 mb-3 px-1">
                 <span className={clsx('h-2.5 w-2.5 rounded-full', col.accent)} />
                 <h2 className="font-semibold text-slate-700">{col.key}</h2>
-                <span className="text-sm text-slate-400">· {items.length}</span>
+                <span className="text-sm text-slate-400">
+                  · {items.length}{isDone && hidden > 0 ? ` מתוך ${all.length}` : ''}
+                </span>
               </div>
+              {isDone && (
+                <div className="flex items-center gap-1.5 mb-3 px-1">
+                  {DONE_RANGES.map((r) => {
+                    const active = doneRange === r.key
+                    return (
+                      <button
+                        key={r.key}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setDoneRange(r.key)}
+                        className={clsx(
+                          'rounded-full px-2.5 h-7 text-xs font-medium transition ring-1',
+                          active
+                            ? 'bg-teal-600 text-white ring-teal-500'
+                            : 'bg-white text-slate-500 ring-slate-200 hover:bg-slate-50',
+                        )}
+                      >
+                        {r.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               <div className="space-y-3 flex-1 min-h-24">
                 {items.length === 0 ? (
                   <div className="rounded-2xl border-2 border-dashed border-slate-200 py-8">
-                    <Empty icon={ListChecks} title="אין משימות" />
+                    <Empty
+                      icon={ListChecks}
+                      title={isDone && all.length > 0 ? 'אין משימות שהושלמו בטווח' : 'אין משימות'}
+                      hint={isDone && all.length > 0 ? 'בחרו "הכל" לצפייה בכל המשימות שהושלמו' : undefined}
+                    />
                   </div>
                 ) : (
                   items.map((t) => {

@@ -3,12 +3,12 @@ import { useData } from '../data/store.jsx'
 import { useSession } from '../session.jsx'
 import { Badge, Button } from './ui.jsx'
 
-// Check-in / check-out controls for an appointment. Per the spec the secretary
-// marks arrival at reception and completion at check-out; a no-show is normally
-// auto-marked after X minutes (here it's a manual button for the demo, with a
-// note). Gated on role.canApprove so the doctor (view-only) never sees it.
+// Check-in / check-out controls for an appointment. The secretary marks arrival at
+// reception and completion at check-out; a no-show is a front-desk action. Therapists
+// run their own sessions, so they may advance THEIR visit to הגיע/הסתיים too — but
+// never mark a no-show (that stays with the desk + its follow-up automation).
 //
-// Lifecycle: קבוע → הגיע → הסתיים, with a branch קבוע → לא הגיע.
+// Lifecycle: קבוע → הגיע → הסתיים, with a staff-only branch קבוע → לא הגיע.
 
 const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green', 'לא הגיע': 'red' }
 
@@ -18,9 +18,12 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
   const { setAppointmentStatus, settings } = useData()
   const { role } = useSession()
 
+  const isTherapist = role?.id === 'therapist'
+  const canAct = role?.canApprove || isTherapist
+
   // Terminal states, or no permission → just show the status.
   const terminal = appt.status === 'הסתיים' || appt.status === 'לא הגיע'
-  if (!role?.canApprove || terminal) {
+  if (!canAct || terminal) {
     return <Badge tone={STATUS_TONE[appt.status]}>{appt.status}</Badge>
   }
 
@@ -50,15 +53,18 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
         onClick={() => setAppointmentStatus(appt.id, 'הגיע')}>
         <LogIn size={15} /> {!compact && 'הגיע'}
       </Button>
-      <Button
-        variant="ghost"
-        size={btnSize}
-        onClick={() => setAppointmentStatus(appt.id, 'לא הגיע')}
-        title={compact ? 'לא הגיע' : noShowTitle}
-        className="text-red-500 hover:bg-red-50"
-      >
-        <UserX size={15} /> {!compact && 'לא הגיע'}
-      </Button>
+      {/* No-show is a front-desk action only — therapists never mark it. */}
+      {role?.canApprove && (
+        <Button
+          variant="ghost"
+          size={btnSize}
+          onClick={() => setAppointmentStatus(appt.id, 'לא הגיע')}
+          title={compact ? 'לא הגיע' : noShowTitle}
+          className="text-red-500 hover:bg-red-50"
+        >
+          <UserX size={15} /> {!compact && 'לא הגיע'}
+        </Button>
+      )}
     </div>
   )
 }

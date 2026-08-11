@@ -20,7 +20,7 @@ export const ROLES = {
   therapist: {
     id: 'therapist',
     label: 'רופא / מטפל',
-    desc: 'צפייה ביומן ובמשימות שלי בלבד',
+    desc: 'היומן, הביקורים והמשימות שלי',
     home: '/doctor',
     canReports: false,
     canApprove: false,
