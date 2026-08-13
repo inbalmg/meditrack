@@ -45,7 +45,7 @@ function layoutDay(appts) {
 }
 
 export default function Calendar() {
-  const { appointments, patientById, therapists, therapistById } = useData()
+  const { appointments, patientById, activeTherapists, therapistById } = useData()
   const [therapistFilter, setTherapistFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [selectedId, setSelectedId] = useState(null)
@@ -119,7 +119,7 @@ export default function Calendar() {
           </div>
           <Filter size={16} className="text-slate-400" />
           <Select value={therapistFilter} onChange={setTherapistFilter}
-            options={[{ value: 'all', label: 'כל המטפלים' }, ...therapists.map((t) => ({ value: t.id, label: t.name }))]} />
+            options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
           <Select value={typeFilter} onChange={setTypeFilter}
             options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
         </div>
@@ -127,7 +127,7 @@ export default function Calendar() {
 
       {/* Therapist legend */}
       <div className="flex items-center gap-4 flex-wrap text-sm">
-        {therapists.map((t) => (
+        {activeTherapists.map((t) => (
           <span key={t.id} className="flex items-center gap-1.5 text-slate-600">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />
             {t.name} <span className="text-slate-400">· {t.specialty}</span>

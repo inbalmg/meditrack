@@ -60,12 +60,12 @@ pt as (
   insert into public.patients (clinic_id, name, phone, birth_year, gender)
   select c.id, x.name, x.phone, x.birth_year, x.gender
   from c, (values
-    ('רותם ברק',    '050-1234567', 1992, 'נ'),
-    ('אבי מזרחי',   '052-9876543', 1968, 'ז'),
-    ('שירה גולן',   '054-5551212', 1997, 'נ'),
-    ('נועם פרידמן', '053-4448899', 1985, 'ז'),
-    ('ליאור שמש',   '058-3332211', 1981, 'נ'),
-    ('תמר אוחיון',  '050-7778866', 1959, 'נ')
+    ('רותם ברק',    '050-1234567', 1992, 'female'),
+    ('אבי מזרחי',   '052-9876543', 1968, 'male'),
+    ('שירה גולן',   '054-5551212', 1997, 'female'),
+    ('נועם פרידמן', '053-4448899', 1985, 'male'),
+    ('ליאור שמש',   '058-3332211', 1981, 'female'),
+    ('תמר אוחיון',  '050-7778866', 1959, 'female')
   ) as x(name, phone, birth_year, gender)
   returning id, name
 ),
@@ -73,12 +73,12 @@ pt as (
 -- Provider is derived from the treatment, keeping therapist/treatment consistent.
 appt as (
   insert into public.appointments
-    (clinic_id, patient_id, therapist_id, treatment_id, start, duration_min, visit_type, status, reason)
+    (clinic_id, patient_id, therapist_id, treatment_id, start, duration_min, visit_type, status, reason, source)
   select (select id from c), pt.id, prov.therapist_id, tr.id,
          -- Intended wall-clock is Israel local; interpret it AT TIME ZONE 'Asia/Jerusalem'
          -- so the stored UTC instant renders at the right local hour in the browser.
          ((k.ws + a.d) + make_time(a.h, a.m, 0)) at time zone 'Asia/Jerusalem',
-         tr.duration_min, tr.name, a.status, a.reason
+         tr.duration_min, tr.name, a.status, a.reason, 'הזמנה עצמית'
   from (select (date_trunc('week', now() at time zone 'Asia/Jerusalem')::date - 1) as ws) k
   cross join (values
     (0,   9,  0, 'אבי מזרחי',   'פיזיותרפיה — טיפול המשך',    'הסתיים', 'כאב גב כרוני — טיפול המשך'),

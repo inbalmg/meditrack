@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { addHours } from 'date-fns'
 import { supabase } from '../lib/supabase.js'
 import { useSession } from '../session.jsx'
 import { classifyRequest } from '../lib/aiClassifier.js'
 import { ageFromBirthYear } from '../lib/format.js'
+import { normalizeName, validateStaffName, isValidStaffRole, validateTherapistName, validateSpecialty, phoneValid, normalizePhone, birthYearValid, isValidGender } from '../lib/validation.js'
 import { AUTO_TASK_DUE_HOURS } from './seed.js'
 
 // DataProvider — the SAME useData() contract as before, now backed by Supabase.
@@ -29,12 +30,12 @@ const DEFAULT_SETTINGS = {
 }
 
 // --- DB row → app-shape mappers (reproduce the exact objects components expect) ---
-const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, color: r.color, initials: r.initials })
-// `age` is derived from `birth_year` so it never goes stale; legacy rows without a
-// birth year fall back to their stored `age`.
+const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, color: r.color, initials: r.initials, active: r.active !== false })
+// `age` is a derived UI value (currentYear − birth_year), never stored — the DB keeps
+// only birth_year (NOT NULL). See migration 18 (the redundant `age` column was dropped).
 const mapPatient = (r) => {
   const birthYear = r.birth_year ?? null
-  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear) ?? r.age ?? null, gender: r.gender }
+  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender }
 }
 const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
 const mapAppt = (r) => ({
@@ -63,6 +64,18 @@ export function DataProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [currentPatientId, setCurrentPatient] = useState(null)
   const [ready, setReady] = useState(false)
+
+  // A brand-new patient creates their own patients row on first self-booking; the
+  // appointment/request insert that immediately follows has an RLS check that resolves
+  // the caller's patient_id FROM THE DB (app.patient_id()), so it must not race ahead of
+  // the patient insert. This holds the in-flight self-registration write; afterPatientWrite
+  // chains the dependent insert after it commits. Resolved (no wait) for existing patients.
+  const pendingPatientWrite = useRef(Promise.resolve())
+  function afterPatientWrite(build) {
+    const prior = pendingPatientWrite.current
+    pendingPatientWrite.current = Promise.resolve()
+    return prior.then(build)
+  }
 
   // --- Hydrate from Supabase once authenticated (RLS scopes rows to the user). ---
   useEffect(() => {
@@ -133,7 +146,11 @@ export function DataProvider({ children }) {
 
   // --- Lookups (unchanged) ---
   const patientById = useMemo(() => Object.fromEntries(patients.map((p) => [p.id, p])), [patients])
+  // therapistById is over ALL therapists (incl. archived) so historical appointments
+  // still render name/color. activeTherapists is the list for booking / calendar /
+  // provider pickers — archived (active === false) providers are hidden there.
   const therapistById = useMemo(() => Object.fromEntries(therapists.map((t) => [t.id, t])), [therapists])
+  const activeTherapists = useMemo(() => therapists.filter((t) => t.active !== false), [therapists])
   const treatmentById = useMemo(() => Object.fromEntries(treatments.map((t) => [t.id, t])), [treatments])
 
   // People a task can be assigned to: treatment providers + office staff
@@ -152,7 +169,9 @@ export function DataProvider({ children }) {
   }, [therapists, staff])
   const assigneeById = useMemo(() => Object.fromEntries(assignees.map((a) => [a.id, a])), [assignees])
   const visitDurations = useMemo(() => Object.fromEntries(treatments.map((t) => [t.name, t.durationMin])), [treatments])
-  const firstProviderFor = (treatmentId) => treatmentById[treatmentId]?.therapistIds?.[0] ?? null
+  // Route to the first ACTIVE provider of the treatment (skip archived ones).
+  const firstProviderFor = (treatmentId) =>
+    (treatmentById[treatmentId]?.therapistIds ?? []).find((id) => therapistById[id]?.active !== false) ?? null
   function treatmentsForTherapist(therapistId) {
     return treatments.filter((t) => t.therapistIds.includes(therapistId))
   }
@@ -188,6 +207,25 @@ export function DataProvider({ children }) {
   function updateTherapist(id, patch) {
     setTherapists((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
     persist(supabase.from('therapists').update(patch).eq('id', id), 'updateTherapist')
+  }
+
+  // Create a clinical provider (therapist). This is the ONLY way a bookable therapist
+  // is added — the staff roster is office-only. The new provider shows in therapist
+  // views immediately; assigning them a treatment (treatment_providers, via Settings)
+  // makes them bookable by patients.
+  function addTherapist({ name, specialty, color }) {
+    const clean = normalizeName(name)
+    const cleanSpecialty = (specialty || '').trim()
+    if (validateTherapistName(clean, therapists.map((t) => t.name)) || validateSpecialty(cleanSpecialty)) {
+      throw new Error('addTherapist: invalid name or specialty')
+    }
+    const initials = clean.split(' ').slice(0, 2).map((w) => w[0] || '').join('')
+    const t = { id: uuid(), name: clean, specialty: cleanSpecialty, color: color || null, initials }
+    setTherapists((prev) => [...prev, t])
+    persist(supabase.from('therapists').insert({
+      id: t.id, clinic_id: clinicId, name: t.name, specialty: t.specialty || null, color: t.color, initials,
+    }), 'addTherapist')
+    return t
   }
 
   // --- Treatments (Settings) ---
@@ -227,17 +265,32 @@ export function DataProvider({ children }) {
   }
 
   // --- Staff (Settings) ---
+  // Defensive backstop under the Settings UI: normalize the name and reject invalid
+  // name/role so junk never reaches the optimistic mirror or the DB. The enforcing
+  // layer is still the DB (staff_name_len CHECK + role CHECK, RLS) — see validation.js.
   function addStaff({ name, roleId }) {
-    const member = { id: uuid(), name, roleId }
+    const clean = normalizeName(name)
+    if (validateStaffName(clean) || !isValidStaffRole(roleId)) {
+      throw new Error('addStaff: invalid name or role')
+    }
+    const member = { id: uuid(), name: clean, roleId }
     setStaff((prev) => [...prev, member])
-    persist(supabase.from('staff').insert({ id: member.id, clinic_id: clinicId, name, role: roleId }), 'addStaff')
+    persist(supabase.from('staff').insert({ id: member.id, clinic_id: clinicId, name: clean, role: roleId }), 'addStaff')
     return member
   }
   function updateStaff(id, patch) {
-    setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+    const next = { ...patch }
+    if (next.name !== undefined) {
+      next.name = normalizeName(next.name)
+      if (validateStaffName(next.name)) throw new Error('updateStaff: invalid name')
+    }
+    if (next.roleId !== undefined && !isValidStaffRole(next.roleId)) {
+      throw new Error('updateStaff: invalid role')
+    }
+    setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, ...next } : s)))
     const row = {}
-    if (patch.name !== undefined) row.name = patch.name
-    if (patch.roleId !== undefined) row.role = patch.roleId
+    if (next.name !== undefined) row.name = next.name
+    if (next.roleId !== undefined) row.role = next.roleId
     persist(supabase.from('staff').update(row).eq('id', id), 'updateStaff')
   }
   function removeStaff(id) {
@@ -247,17 +300,36 @@ export function DataProvider({ children }) {
 
   // --- Patients ---
   function addPatient({ name, phone, birthYear = null, gender = null }) {
-    // Store the birth year (the stable fact); age is derived from it. The legacy
-    // `age` column is kept populated with the derived value for backward compat.
+    // Required fields (mirrors the DB: phone/birth_year/gender are NOT NULL, gender is
+    // CHECK-constrained). Backstop under the intake forms — reject invalid input.
+    const cleanName = (name || '').trim()
+    // Persist the normalized phone (05XXXXXXXX) so every row shares one format.
+    const cleanPhone = normalizePhone(phone)
+    if (!cleanName || !phoneValid(cleanPhone) || !birthYearValid(birthYear) || !isValidGender(gender)) {
+      throw new Error('addPatient: invalid patient fields (name/phone/birthYear/gender)')
+    }
+    // age is derived for the UI only; the DB stores birth_year (the stable fact).
     const age = ageFromBirthYear(birthYear)
-    const patient = { id: uuid(), name, phone, birthYear, age, gender }
+    const patient = { id: uuid(), name: cleanName, phone: cleanPhone, birthYear, age, gender }
     setPatients((prev) => [...prev, patient])
-    persist(supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name, phone, birth_year: birthYear, age, gender }), 'addPatient')
+    // A patient self-registering links the row to their auth user (profile_id = auth.uid())
+    // so RLS (patients_insert_self + app.patient_id()) accepts it and resolves their id for
+    // the follow-up booking. Staff-created phone-book patients have no login → profile_id null.
+    const selfRegister = !!role?.isPatient
+    const profileId = selfRegister ? (userId ?? null) : null
+    // Resolve the builder exactly once, then reuse the promise (persist + the ordering gate).
+    const write = Promise.resolve(
+      supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name: cleanName, phone: cleanPhone, birth_year: birthYear, gender, profile_id: profileId }),
+    )
+    persist(write, 'addPatient')
+    if (selfRegister) pendingPatientWrite.current = write.catch(() => {})
     return patient
   }
   function updatePatient(id, patch) {
-    setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
-    persist(supabase.from('patients').update(patch).eq('id', id), 'updatePatient')
+    // Keep stored phones in the canonical 05XXXXXXXX shape whatever the caller passed.
+    const clean = 'phone' in patch ? { ...patch, phone: normalizePhone(patch.phone) } : patch
+    setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...clean } : p)))
+    persist(supabase.from('patients').update(clean).eq('id', id), 'updatePatient')
   }
 
   // --- PRIMARY path: patient self-books (confirmed, no approval) ---
@@ -270,11 +342,13 @@ export function DataProvider({ children }) {
       reason: reason || tr.name, source: 'הזמנה עצמית',
     }
     setAppointments((prev) => [...prev, appt])
-    persist(supabase.from('appointments').insert({
+    // Chain after a just-created patient row (new-patient self-book) so this insert's RLS
+    // check (patient_id = app.patient_id()) sees the committed, linked patient.
+    persist(afterPatientWrite(() => supabase.from('appointments').insert({
       id: appt.id, clinic_id: clinicId, patient_id: patientId, therapist_id: therapistId,
       treatment_id: treatmentId, start: start.toISOString(), duration_min: tr.durationMin,
       visit_type: tr.name, status: 'קבוע', reason: appt.reason, source: 'הזמנה עצמית',
-    }), 'bookAppointment')
+    })), 'bookAppointment')
     return appt
   }
 
@@ -294,11 +368,13 @@ export function DataProvider({ children }) {
       ai: aiFor(input),
     }
     setRequests((prev) => [req, ...prev])
-    persist(supabase.from('requests').insert({
+    // Same ordering as bookAppointment: a new patient's request insert (req_insert_patient:
+    // patient_id = app.patient_id()) must wait for their patient row to commit first.
+    persist(afterPatientWrite(() => supabase.from('requests').insert({
       id, clinic_id: clinicId, patient_id: patientId, description,
       preferred_therapist_id: input.preferredTherapistId, visit_type_hint: input.visitTypeHint,
       preferred_time: req.preferredTime, source: req.source, status: 'ממתין', ai: req.ai,
-    }), 'submitRequest')
+    })), 'submitRequest')
     // Refine classification server-side (Claude when configured); update if it returns.
     supabase.functions.invoke('classify-request', { body: input }).then(({ data }) => {
       if (!data || data.error) return
@@ -320,13 +396,14 @@ export function DataProvider({ children }) {
       id: apptId, patientId: req.patientId, therapistId, treatmentId, start,
       durationMin: slot?.durationMin ?? tr?.durationMin ?? 30,
       visitType: tr?.name ?? req.ai.visitType, status: 'קבוע', reason: req.description,
+      source: req.source,
     }
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'אושר' } : r)))
     setAppointments((prev) => [...prev, appt])
     persist(supabase.from('appointments').insert({
       id: apptId, clinic_id: clinicId, patient_id: req.patientId, therapist_id: therapistId,
       treatment_id: treatmentId, start: start.toISOString(), duration_min: appt.durationMin,
-      visit_type: appt.visitType, status: 'קבוע', reason: req.description,
+      visit_type: appt.visitType, status: 'קבוע', reason: req.description, source: req.source,
     }), 'approveRequest.appt')
     persist(supabase.from('requests').update({ status: 'אושר', appointment_id: apptId }).eq('id', requestId), 'approveRequest.req')
     if (slot?.notify) {
@@ -445,10 +522,10 @@ export function DataProvider({ children }) {
   }
 
   const value = {
-    therapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
+    therapists, activeTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
     setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor, classifyAsync,
     assignees, assigneeById,
-    updateSettings, updateTherapist, addTreatment, updateTreatment, removeTreatment,
+    updateSettings, addTherapist, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient,
     bookAppointment, cancelAppointment, submitRequest, approveRequest, rejectRequest,
     setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,

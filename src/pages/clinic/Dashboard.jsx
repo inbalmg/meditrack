@@ -160,20 +160,14 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade">
-      {/* Greeting + triage summary + date */}
-      <div className="flex items-start justify-between flex-wrap gap-2">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-slate-800">
-            {greetingFor(now)}, {DEMO_STAFF_NAME}
-          </h1>
-          <p className="text-sm text-slate-600 mt-1">
-            {buildSummary({ appts: todayAppts.length, pending: pending.length, urgent: overdueCount })}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 text-sm font-medium text-teal-700 whitespace-nowrap">
-          <Clock size={15} className="shrink-0" />
-          {now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </div>
+      {/* Greeting + triage summary (התאריך עלה לכותרת העליונה, בגובה הלוגו) */}
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold text-slate-800">
+          {greetingFor(now)}, {DEMO_STAFF_NAME}
+        </h1>
+        <p className="text-sm text-slate-600 mt-1">
+          {buildSummary({ appts: todayAppts.length, pending: pending.length, urgent: overdueCount })}
+        </p>
       </div>
 
 

@@ -6,7 +6,7 @@ import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Badge, Avatar, Button, Empty } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import { classifyRequest } from '../../lib/aiClassifier.js'
-import { hhmm, friendlyDate, dayName } from '../../lib/format.js'
+import { hhmm, friendlyDate, dayName, genderLabel } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
 // Patient profile for the therapist: the current visit's reason + AI tags, an editable
@@ -89,7 +89,7 @@ export default function VisitCard() {
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-slate-800">{patient.name}</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              {patient.age} · {patient.gender === 'ז' ? 'זכר' : 'נקבה'} · <Phone size={12} className="inline" /> {patient.phone}
+              {patient.age} · {genderLabel(patient.gender)} · <Phone size={12} className="inline" /> {patient.phone}
             </p>
           </div>
           <div className="text-left">

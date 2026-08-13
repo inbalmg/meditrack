@@ -72,3 +72,9 @@ export function ageFromBirthYear(birthYear) {
   if (!birthYear) return null
   return new Date().getFullYear() - birthYear
 }
+
+// Hebrew display labels for the canonical gender values (see lib/validation.js → GENDERS).
+export const GENDER_LABELS = { male: 'זכר', female: 'נקבה', other: 'אחר' }
+export function genderLabel(g) {
+  return GENDER_LABELS[g] ?? ''
+}

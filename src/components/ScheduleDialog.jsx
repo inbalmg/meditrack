@@ -23,7 +23,7 @@ const URGENCY_DATE_OFFSET = { 'דחוף': 0, 'בהקדם': 1, 'רגיל': 2 }
 // can't be double-booked; the patient's preferred window is highlighted, and the
 // default date follows the AI urgency.
 export default function ScheduleDialog({ request, onConfirm, onClose }) {
-  const { appointments, therapists, patientById, visitDurations, treatmentById, treatments, treatmentsForTherapist } = useData()
+  const { appointments, activeTherapists, patientById, visitDurations, treatmentById, treatments, treatmentsForTherapist } = useData()
   const patient = patientById[request.patientId]
   const ai = request.ai
 
@@ -176,7 +176,7 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
           {/* Therapist */}
           <Field label="מטפל">
             <div className="flex flex-wrap gap-2">
-              {therapists.map((t) => (
+              {activeTherapists.map((t) => (
                 <button
                   key={t.id}
                   onClick={() => pickTherapist(t.id)}

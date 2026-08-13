@@ -3,7 +3,8 @@ import { X, Phone, Sparkles, Clock, UserPlus, UserRound, Check } from 'lucide-re
 import { useData } from '../data/store.jsx'
 import { Card, Button, RequiredMark } from './ui.jsx'
 import { clsx } from './clsx.js'
-import { phoneValid, birthYearValid } from '../lib/validation.js'
+import { phoneValid, birthYearValid, isValidGender, GENDERS } from '../lib/validation.js'
+import { genderLabel } from '../lib/format.js'
 import { VISIT_TYPES } from '../data/seed.js'
 
 const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
@@ -12,13 +13,14 @@ const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
 // callers can be registered inline. On submit the request lands at the top of
 // the pending pipeline with its AI classification — same flow as a portal request.
 export default function PhoneRequestDialog({ onClose }) {
-  const { patients, therapists, submitRequest, addPatient } = useData()
+  const { patients, activeTherapists, submitRequest, addPatient } = useData()
 
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [patientId, setPatientId] = useState('')
   const [newName, setNewName] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [newBirthYear, setNewBirthYear] = useState('')
+  const [newGender, setNewGender] = useState('')
   const [visitType, setVisitType] = useState('')
   const [therapistId, setTherapistId] = useState('')
   const [description, setDescription] = useState('')
@@ -30,7 +32,7 @@ export default function PhoneRequestDialog({ onClose }) {
   const newBirthYearValid = birthYearValid(newBirthYear)
   const patientReady = mode === 'existing'
     ? !!patientId
-    : (!!newName.trim() && newPhoneValid && newBirthYearValid)
+    : (!!newName.trim() && newPhoneValid && newBirthYearValid && isValidGender(newGender))
   const canSubmit = patientReady && description.trim().length > 0
 
   function handleSubmit(e) {
@@ -38,7 +40,7 @@ export default function PhoneRequestDialog({ onClose }) {
     if (!canSubmit) return
     let pid = patientId
     if (mode === 'new') {
-      const p = addPatient({ name: newName.trim(), phone: newPhone.trim(), birthYear: Number(newBirthYear) })
+      const p = addPatient({ name: newName.trim(), phone: newPhone.trim(), birthYear: Number(newBirthYear), gender: newGender })
       pid = p.id
     }
     submitRequest({
@@ -118,6 +120,25 @@ export default function PhoneRequestDialog({ onClose }) {
                     <span className="text-[11px] text-red-500">שנת לידה לא תקינה</span>
                   )}
                 </label>
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">מין <RequiredMark /></span>
+                  <div className="flex gap-1.5">
+                    {GENDERS.map((g) => (
+                      <button
+                        type="button"
+                        key={g}
+                        onClick={() => setNewGender(g)}
+                        aria-pressed={newGender === g}
+                        className={clsx(
+                          'flex-1 h-10 rounded-xl ring-1 text-sm font-medium transition',
+                          newGender === g ? 'bg-teal-600 text-white ring-teal-600' : 'bg-white text-slate-600 ring-slate-300 hover:ring-teal-300',
+                        )}
+                      >
+                        {genderLabel(g)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </Field>
@@ -134,7 +155,7 @@ export default function PhoneRequestDialog({ onClose }) {
           {/* Preferred therapist */}
           <Field label="מטפל מועדף" hint="רשות">
             <div className="flex flex-wrap gap-2">
-              {therapists.map((t) => (
+              {activeTherapists.map((t) => (
                 <button
                   key={t.id}
                   type="button"

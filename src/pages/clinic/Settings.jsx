@@ -1,30 +1,47 @@
 import { useState } from 'react'
-import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus } from 'lucide-react'
+import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { ROLES } from '../../session.jsx'
 import { Card, CardHeader, Button, Badge } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
+import { validateStaffName, isValidStaffRole, NAME_MAX, validateTherapistName, validateSpecialty, THERAPIST_NAME_MAX, SPECIALTY_MAX } from '../../lib/validation.js'
 
 const THERAPIST_COLORS = ['#0d9488', '#2563eb', '#9333ea', '#f59e0b', '#ef4444', '#0ea5e9']
 const DURATIONS = [20, 30, 45, 60]
-// Staff roles that can be assigned from Settings (patients aren't staff).
-const STAFF_ROLES = ['secretary', 'therapist', 'manager']
+// The staff roster is office-only: clinical providers live in `therapists` and are
+// managed in the Therapists section. (patients aren't staff.)
+const OFFICE_ROLES = ['secretary', 'manager']
 
 export default function Settings() {
   const {
     settings, updateSettings,
-    therapists, updateTherapist,
+    therapists, activeTherapists, addTherapist, updateTherapist,
     treatments, addTreatment, updateTreatment, removeTreatment,
     staff, addStaff, updateStaff, removeStaff,
   } = useData()
+
+  const archivedTherapists = therapists.filter((t) => t.active === false)
 
   const [newName, setNewName] = useState('')
   const [newRole, setNewRole] = useState('secretary')
   const [newTreatment, setNewTreatment] = useState('')
 
+  // Add-therapist form state.
+  const [newTherName, setNewTherName] = useState('')
+  const [newTherSpecialty, setNewTherSpecialty] = useState('')
+  const [newTherColor, setNewTherColor] = useState(THERAPIST_COLORS[0])
+
+  // Derived so feedback is reactive as the user types (only once they've typed).
+  const nameError = newName ? validateStaffName(newName) : ''
+  const therNameError = newTherName ? validateTherapistName(newTherName, therapists.map((t) => t.name)) : ''
+  const therSpecialtyError = validateSpecialty(newTherSpecialty)
+
+  // Only office staff belong in the Staff Users list (therapists have their own section).
+  const officeStaff = staff.filter((s) => OFFICE_ROLES.includes(s.roleId))
+
   function handleAddTreatment() {
     if (!newTreatment.trim()) return
-    addTreatment({ name: newTreatment.trim(), durationMin: 30, therapistIds: therapists[0] ? [therapists[0].id] : [] })
+    addTreatment({ name: newTreatment.trim(), durationMin: 30, therapistIds: activeTherapists[0] ? [activeTherapists[0].id] : [] })
     setNewTreatment('')
   }
   function toggleProvider(tr, therapistId) {
@@ -35,9 +52,17 @@ export default function Settings() {
   }
 
   function handleAddStaff() {
-    if (!newName.trim()) return
-    addStaff({ name: newName.trim(), roleId: newRole })
+    if (nameError || !newName || !isValidStaffRole(newRole)) return
+    addStaff({ name: newName, roleId: newRole })
     setNewName('')
+  }
+
+  function handleAddTherapist() {
+    if (!newTherName || therNameError || therSpecialtyError) return
+    addTherapist({ name: newTherName, specialty: newTherSpecialty, color: newTherColor })
+    setNewTherName('')
+    setNewTherSpecialty('')
+    setNewTherColor(THERAPIST_COLORS[0])
   }
 
   return (
@@ -101,17 +126,17 @@ export default function Settings() {
           <div>
             <h3 className="text-sm font-medium text-slate-700 mb-2.5">מטפלים</h3>
             <div className="space-y-2">
-              {therapists.map((t) => (
+              {activeTherapists.map((t) => (
                 <div key={t.id} className="flex items-center gap-2 flex-wrap rounded-xl ring-1 ring-slate-200 p-3">
                   <input
                     value={t.name}
                     onChange={(e) => updateTherapist(t.id, { name: e.target.value })}
-                    className="h-9 flex-1 min-w-[140px] rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                    className="h-9 flex-1 min-w-[120px] rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     value={t.specialty}
                     onChange={(e) => updateTherapist(t.id, { specialty: e.target.value })}
-                    className="h-9 w-36 rounded-lg ring-1 ring-slate-300 px-3 text-sm text-slate-600 outline-none focus:ring-2 focus:ring-teal-500"
+                    className="h-9 w-48 rounded-lg ring-1 ring-slate-300 px-3 text-sm text-slate-600 outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <div className="flex items-center gap-1.5">
                     {THERAPIST_COLORS.map((c) => (
@@ -127,10 +152,91 @@ export default function Settings() {
                       />
                     ))}
                   </div>
+                  <button
+                    onClick={() => updateTherapist(t.id, { active: false })}
+                    title="העברה לארכיון — הסתרה מהזמנה, מהיומן ומבוררי המטפלים (ההיסטוריה נשמרת)"
+                    className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               ))}
+
+              {/* Add therapist — the only way to create a bookable provider. */}
+              <div className="rounded-xl border-2 border-dashed border-slate-200 p-3 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    value={newTherName}
+                    onChange={(e) => setNewTherName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTherapist()}
+                    maxLength={THERAPIST_NAME_MAX}
+                    placeholder="שם המטפל החדש"
+                    aria-invalid={!!therNameError}
+                    className={clsx(
+                      'h-9 flex-1 min-w-[120px] rounded-lg ring-1 px-3 text-sm outline-none focus:ring-2',
+                      therNameError ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                    )}
+                  />
+                  <input
+                    value={newTherSpecialty}
+                    onChange={(e) => setNewTherSpecialty(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTherapist()}
+                    maxLength={SPECIALTY_MAX}
+                    placeholder="התמחות"
+                    aria-invalid={!!therSpecialtyError}
+                    className={clsx(
+                      'h-9 w-48 rounded-lg ring-1 px-3 text-sm text-slate-600 outline-none focus:ring-2',
+                      therSpecialtyError ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                    )}
+                  />
+                  <div className="flex items-center gap-1.5">
+                    {THERAPIST_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        title={`צבע ${c}`}
+                        onClick={() => setNewTherColor(c)}
+                        className={clsx(
+                          'h-6 w-6 rounded-full transition ring-offset-2',
+                          newTherColor === c ? 'ring-2 ring-slate-800' : 'hover:scale-110',
+                        )}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                  <Button size="sm" disabled={!newTherName || !!therNameError || !!therSpecialtyError} onClick={handleAddTherapist}>
+                    <UserPlus size={15} /> הוספת מטפל
+                  </Button>
+                </div>
+                {(therNameError || therSpecialtyError) && (
+                  <p className="text-xs text-red-500 px-1">{therNameError || therSpecialtyError}</p>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">הצבע והשם מתעדכנים מיד ביומן ובבורר המשבצות.</p>
+            <p className="text-xs text-slate-400 mt-2">הצבע והשם מתעדכנים מיד ביומן ובבורר המשבצות. מטפל חדש יופיע מיד ביומן; כדי לאפשר הזמנה עצמית, שייכו לו סוג טיפול למטה.</p>
+
+            {archivedTherapists.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-xs font-medium text-slate-500 mb-2">בארכיון ({archivedTherapists.length})</h4>
+                <div className="space-y-2">
+                  {archivedTherapists.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 p-3">
+                      <span className="h-3 w-3 rounded-full shrink-0 opacity-50" style={{ backgroundColor: t.color }} />
+                      <span className="flex-1 min-w-0 text-sm text-slate-500 truncate">
+                        {t.name}{t.specialty ? ` · ${t.specialty}` : ''}
+                      </span>
+                      <button
+                        onClick={() => updateTherapist(t.id, { active: true })}
+                        title="שחזור מהארכיון"
+                        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-teal-700 ring-1 ring-teal-200 hover:bg-teal-50"
+                      >
+                        <RotateCcw size={14} /> שחזור
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">מטפלים בארכיון מוסתרים מהזמנה ומהיומן; התורים ההיסטוריים שלהם נשמרים.</p>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-slate-100 pt-4">
@@ -155,7 +261,7 @@ export default function Settings() {
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap mt-2">
                     <span className="text-xs text-slate-400 ml-1">ניתן אצל:</span>
-                    {therapists.map((t) => {
+                    {activeTherapists.map((t) => {
                       const on = tr.therapistIds.includes(t.id)
                       return (
                         <button
@@ -191,10 +297,10 @@ export default function Settings() {
 
       {/* --- Staff users --- */}
       <Card className="overflow-hidden">
-        <CardHeader dark title="משתמשי צוות" icon={Users}
-          action={<Badge tone="teal">{staff.length} משתמשים</Badge>} />
+        <CardHeader dark title="משתמשי צוות (מזכירות והנהלה)" icon={Users}
+          action={<Badge tone="teal">{officeStaff.length} משתמשים</Badge>} />
         <div className="p-5 space-y-3">
-          {staff.map((s) => (
+          {officeStaff.map((s) => (
             <div key={s.id} className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 p-3">
               <span className="flex-1 min-w-0 text-sm font-medium text-slate-800 truncate">{s.name}</span>
               <select
@@ -202,7 +308,7 @@ export default function Settings() {
                 onChange={(e) => updateStaff(s.id, { roleId: e.target.value })}
                 className="h-9 w-36 rounded-lg ring-1 ring-slate-300 px-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500"
               >
-                {STAFF_ROLES.map((r) => (
+                {OFFICE_ROLES.map((r) => (
                   <option key={r} value={r}>{ROLES[r].label}</option>
                 ))}
               </select>
@@ -217,26 +323,34 @@ export default function Settings() {
           ))}
 
           {/* Add row */}
-          <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 p-3">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddStaff()}
-              placeholder="שם המשתמש החדש"
-              className="h-9 flex-1 min-w-0 rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
-            />
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value)}
-              className="h-9 w-36 rounded-lg ring-1 ring-slate-300 px-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              {STAFF_ROLES.map((r) => (
-                <option key={r} value={r}>{ROLES[r].label}</option>
-              ))}
-            </select>
-            <Button size="sm" disabled={!newName.trim()} onClick={handleAddStaff}>
-              <UserPlus size={15} /> הוספה
-            </Button>
+          <div>
+            <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 p-3">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddStaff()}
+                maxLength={NAME_MAX}
+                placeholder="שם המשתמש החדש"
+                aria-invalid={!!nameError}
+                className={clsx(
+                  'h-9 flex-1 min-w-0 rounded-lg ring-1 px-3 text-sm outline-none focus:ring-2',
+                  nameError ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                )}
+              />
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="h-9 w-36 rounded-lg ring-1 ring-slate-300 px-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                {OFFICE_ROLES.map((r) => (
+                  <option key={r} value={r}>{ROLES[r].label}</option>
+                ))}
+              </select>
+              <Button size="sm" disabled={!!validateStaffName(newName)} onClick={handleAddStaff}>
+                <UserPlus size={15} /> הוספה
+              </Button>
+            </div>
+            {nameError && <p className="text-xs text-red-500 mt-1.5 px-1">{nameError}</p>}
           </div>
         </div>
       </Card>

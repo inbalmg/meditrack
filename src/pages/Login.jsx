@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ShieldCheck, UserCog, Stethoscope, UserRound } from 'lucide-react'
+import { ShieldCheck, UserCog, Stethoscope, UserRound, UserRoundPlus } from 'lucide-react'
 import { signInWithPassword } from '../lib/auth.js'
 import Welcome, { WelcomeCard, StaffIcon, PatientIcon } from './Welcome.jsx'
 
@@ -8,8 +8,8 @@ import Welcome, { WelcomeCard, StaffIcon, PatientIcon } from './Welcome.jsx'
 const DEMO_PASSWORD = 'Meditrack1!'
 const STAFF_ACCOUNTS = [
   { email: 'manager@meditrack.test', title: 'מנהל/ת קליניקה', subtitle: 'גישה מלאה + דוחות ואנליטיקה', icon: ShieldCheck },
-  { email: 'secretary@meditrack.test', title: 'מזכירות', subtitle: 'ניהול צינור הבקשות, יומן ומשימות', icon: UserCog },
-  { email: 'therapist@meditrack.test', title: 'רופא / מטפל', subtitle: 'צפייה ביומן ובמשימות שלי', icon: Stethoscope },
+  { email: 'secretary@meditrack.test', title: 'מזכירות', subtitle: 'ניהול הבקשות, יומן ומשימות', icon: UserCog },
+  { email: 'therapist@meditrack.test', title: 'רופא / מטפל', subtitle: 'ניהול היומן והמשימות שלי', icon: Stethoscope },
 ]
 
 function CircleIcon({ icon: Icon }) {
@@ -60,6 +60,12 @@ export default function Login() {
           title="רותם ברק"
           subtitle="מטופל/ת רשומ/ה · 050-1234567"
           onClick={() => enter('patient@meditrack.test')}
+        />
+        <WelcomeCard
+          icon={<CircleIcon icon={UserRoundPlus} />}
+          title="מטופל/ת חדש/ה"
+          subtitle="ללא רשומה · הזמנה עצמית ראשונה"
+          onClick={() => enter('newpatient@meditrack.test')}
         />
         {hint}{errorBanner}
       </Welcome>

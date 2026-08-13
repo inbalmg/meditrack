@@ -63,12 +63,12 @@ export function treatmentsForTherapist(therapistId) {
 
 // Age is derived from birthYear (see lib/format.js → ageFromBirthYear), not stored.
 export const patients = [
-  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'נ' },
-  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'ז' },
-  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'נ' },
-  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'ז' },
-  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'נ' },
-  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'נ' },
+  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'female' },
+  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'male' },
+  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'female' },
+  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'male' },
+  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'female' },
+  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'female' },
 ]
 
 // The signed-in patient for the mobile portal demo.

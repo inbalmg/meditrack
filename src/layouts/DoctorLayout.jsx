@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarClock, CalendarDays, ListChecks, LogOut, Stethoscope } from 'lucide-react'
+import { CalendarClock, CalendarDays, ListChecks, LogOut, Stethoscope, ArrowRight, Clock } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
@@ -54,8 +54,8 @@ export default function DoctorLayout() {
           <div className="flex items-center gap-3 px-2 py-2">
             <Avatar initials={me.initials} color={me.color} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{me.name}</p>
-              <p className="text-[11px] text-slate-400 truncate">{me.specialty}</p>
+              <p className="text-base font-medium text-white truncate">{me.name}</p>
+              <p className="text-sm text-slate-400 truncate">{me.specialty}</p>
             </div>
           </div>
           {/* Dedicated, explicit logout row (icon + label) — matches the clinic sidebar. */}
@@ -72,11 +72,24 @@ export default function DoctorLayout() {
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="sticky top-0 z-20 bg-canvas/80 backdrop-blur border-b border-slate-200/70">
           <div className="h-16 px-4 sm:px-6 flex items-center gap-3 max-w-[1200px] mx-auto">
+            {/* חזרה למסך הקודם */}
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+            >
+              <ArrowRight size={18} className="shrink-0" />
+              <span className="hidden sm:inline">חזרה</span>
+            </button>
             <div className="md:hidden flex items-center gap-2">
               <span className="grid place-items-center h-8 w-8 rounded-lg bg-teal-600 text-white"><Stethoscope size={17} /></span>
               <span className="font-bold text-slate-800">{me.name}</span>
             </div>
             <div className="flex-1" />
+            {/* תאריך היום — מיושר לגובה הלוגו */}
+            <div className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-teal-700 whitespace-nowrap">
+              <Clock size={15} className="shrink-0" />
+              {new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </div>
             <div className="md:hidden">
               <button onClick={handleLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500"><LogOut size={20} /></button>
             </div>

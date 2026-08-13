@@ -10,8 +10,9 @@ import { clsx } from '../../components/clsx.js'
 import {
   dayName, shortDate, hhmm,
   firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
+  genderLabel,
 } from '../../lib/format.js'
-import { phoneValid, birthYearValid } from '../../lib/validation.js'
+import { phoneValid, normalizePhone, birthYearValid, isValidGender, GENDERS } from '../../lib/validation.js'
 import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
 
 // 30-minute slot grid for a provider + date; a slot is available if it fits the
@@ -49,7 +50,7 @@ function meaningfulDescription(text) {
 
 export default function NewRequest() {
   const {
-    therapists, treatmentsForTherapist, appointments, currentPatientId,
+    activeTherapists, treatmentsForTherapist, appointments, currentPatientId,
     therapistById, treatmentById, patientById,
     bookAppointment, submitRequest, addPatient, updatePatient, setCurrentPatient,
     cancelAppointment,
@@ -76,20 +77,25 @@ export default function NewRequest() {
   const [phone, setPhone] = useState(me?.phone ?? '')
   // Year of birth — collected once for a new patient (age is derived from it).
   const [birthYear, setBirthYear] = useState('')
+  // Gender — required for a new patient (male/female/other).
+  const [gender, setGender] = useState(me?.gender ?? '')
   const contactValid =
     phoneValid(phone) &&
-    (!isNewPatient || (name.trim().length > 0 && birthYearValid(birthYear)))
+    (!isNewPatient || (name.trim().length > 0 && birthYearValid(birthYear) && isValidGender(gender)))
 
   // Ensure a patient record exists (creating a new one / saving an edited phone)
   // and return its id, or null if the contact details are invalid.
   function commitContact() {
     if (!contactValid) return null
     if (isNewPatient) {
-      const p = addPatient({ name: name.trim(), phone: phone.trim(), birthYear: Number(birthYear) })
+      // addPatient normalizes the phone; pass the raw value through.
+      const p = addPatient({ name: name.trim(), phone, birthYear: Number(birthYear), gender })
       setCurrentPatient(p.id)
       return p.id
     }
-    if (phone.trim() !== (me.phone ?? '')) updatePatient(currentPatientId, { phone: phone.trim() })
+    // Persist only a real change, comparing on the normalized form so re-typing the
+    // same number with/without dashes isn't treated as an edit.
+    if (normalizePhone(phone) !== normalizePhone(me.phone)) updatePatient(currentPatientId, { phone })
     return currentPatientId
   }
 
@@ -144,6 +150,26 @@ export default function NewRequest() {
     setBooked(appt)
   }
 
+  // Clear the form to start a fresh request without leaving the page. Needed because
+  // the success screen lives on the same route (/patient/new): clicking the "בקשת תור"
+  // nav tab while already here doesn't remount, so the confirmation would otherwise
+  // stick until the user navigated away and back. Contact details reflect the now-
+  // registered patient (a new patient becomes registered on their first booking).
+  function resetForm() {
+    const current = currentPatientId ? patientById[currentPatientId] : null
+    setBooked(null)
+    setMode('book')
+    setTherapistId('')
+    setTreatmentId('')
+    setSlot(null)
+    setWeekStart(thisWeekStart)
+    setDate(firstDay)
+    setName(current?.name ?? '')
+    setPhone(current?.phone ?? '')
+    setBirthYear('')
+    setGender(current?.gender ?? '')
+  }
+
   // ---------- Booked confirmation ----------
   if (booked) {
     const t = therapistById[booked.therapistId]
@@ -152,7 +178,7 @@ export default function NewRequest() {
         <Card className="p-6 text-center">
           <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><Check size={32} /></span>
           <h2 className="text-xl font-bold text-slate-800">התור נקבע!</h2>
-          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{phone}.</p>
+          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{normalizePhone(phone)}.</p>
         </Card>
         <Card className="p-5">
           <dl className="space-y-2.5 text-sm">
@@ -162,9 +188,14 @@ export default function NewRequest() {
             <Row label="משך"><span className="font-medium text-slate-700">{booked.durationMin} דק׳</span></Row>
           </dl>
         </Card>
-        <Button size="lg" className="w-full" onClick={() => navigate('/patient')}>
-          <CalendarCheck size={18} /> לתורים שלי
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button size="lg" className="w-full" onClick={() => navigate('/patient')}>
+            <CalendarCheck size={18} /> לתורים שלי
+          </Button>
+          <Button variant="soft" size="lg" className="w-full" onClick={resetForm}>
+            <CalendarClock size={18} /> קביעת תור נוסף
+          </Button>
+        </div>
       </div>
     )
   }
@@ -175,6 +206,7 @@ export default function NewRequest() {
       isNew={isNewPatient}
       name={name} setName={setName} phone={phone} setPhone={setPhone}
       birthYear={birthYear} setBirthYear={setBirthYear}
+      gender={gender} setGender={setGender}
       contactValid={contactValid}
       onBack={() => setMode('book')}
       onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
@@ -218,7 +250,7 @@ export default function NewRequest() {
       {/* Step 1 — provider */}
       <Step n={1} label="בחירת מטפל/ת" done={!!therapistId}>
         <div className="space-y-2">
-          {therapists.map((t) => (
+          {activeTherapists.map((t) => (
             <button
               key={t.id}
               onClick={() => pickTherapist(t.id)}
@@ -331,7 +363,7 @@ export default function NewRequest() {
           step so the numbering stays contiguous (1→2→3→4). */}
       {therapistId && treatmentId && (
         <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
-          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
+          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
         </Step>
       )}
 
@@ -343,8 +375,11 @@ export default function NewRequest() {
   )
 }
 
-function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear }) {
+function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender }) {
   const birthYearInvalid = (birthYear ?? '').trim().length > 0 && !birthYearValid(birthYear)
+  const phoneInvalid = phone.trim().length > 0 && !phoneValid(phone)
+  // Surface the gender requirement once the user has begun filling the form.
+  const genderMissing = isNew && !isValidGender(gender) && (name.trim() !== '' || (birthYear ?? '') !== '' || phone.trim() !== '')
   return (
     <div className="space-y-3">
       {isNew && (
@@ -384,6 +419,30 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
           {birthYearInvalid && <p className="text-[11px] text-red-500 mt-1.5">שנת לידה לא תקינה</p>}
         </div>
       )}
+      {isNew && (
+        <div>
+          <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
+            <User size={14} className="text-teal-600" /> מין <RequiredMark />
+          </label>
+          <div className="flex gap-2">
+            {GENDERS.map((g) => (
+              <button
+                type="button"
+                key={g}
+                onClick={() => setGender(g)}
+                aria-pressed={gender === g}
+                className={clsx(
+                  'flex-1 rounded-xl ring-1 px-3 py-2.5 text-sm font-medium transition',
+                  gender === g ? 'bg-teal-600 text-white ring-teal-600' : 'bg-white text-slate-600 ring-slate-300 hover:ring-teal-300',
+                )}
+              >
+                {genderLabel(g)}
+              </button>
+            ))}
+          </div>
+          {genderMissing && <p className="text-[11px] text-red-500 mt-1.5">יש לבחור מין</p>}
+        </div>
+      )}
       <div>
         <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
           <Phone size={14} className="text-teal-600" /> מספר טלפון נייד <RequiredMark />
@@ -393,19 +452,27 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
           onChange={(e) => setPhone(e.target.value)}
           required
           aria-required="true"
+          aria-invalid={phoneInvalid}
           inputMode="tel"
           placeholder="050-0000000"
-          className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500"
+          className={clsx(
+            'w-full rounded-xl ring-1 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2',
+            phoneInvalid ? 'ring-red-300 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+          )}
         />
-        <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
-          <Bell size={12} /> נשלח לכאן תזכורת בוואטסאפ/SMS לפני התור
-        </p>
+        {phoneInvalid ? (
+          <p className="text-[11px] text-red-500 mt-1.5">מספר טלפון נייד לא תקין</p>
+        ) : (
+          <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+            <Bell size={12} /> נשלח לכאן תזכורת בוואטסאפ/SMS לפני התור
+          </p>
+        )}
       </div>
     </div>
   )
 }
 
-function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, contactValid, onBack, onProceed, onSendToClinic }) {
+function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender, contactValid, onBack, onProceed, onSendToClinic }) {
   const { therapistById, treatmentById, classifyAsync } = useData()
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
@@ -463,7 +530,7 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirth
               <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
               <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
               <div className="mt-4">
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
               </div>
               <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'הפניה דחופה')}>
                 שליחת הפנייה למרפאה
@@ -479,7 +546,7 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirth
               </Button>
               <div className="mt-4 pt-4 border-t border-teal-100">
                 <p className="text-xs text-slate-500 mb-3">או השאירו פרטים ונחזור אליכם לתיאום מתאים:</p>
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} />
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
                 <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'פורטל')}>
                   <Phone size={16} /> שליחת פנייה למרפאה
                 </Button>

@@ -37,6 +37,10 @@ Replace outdated information instead of appending.
   רשומת מטופל (`addPatient`) לחדש או מעדכן טלפון לקיים (`updatePatient`), ורק אז `bookAppointment`/
   `submitRequest`. המטופל המחובר (`currentPatientId`) הוא **state** ב-store — נקבע בכניסה: מזהה
   מטופל קיים או `null` למטופל חדש (ראו `Login.jsx`).
+- **שדות חובה של מטופל (`patients`, נאכף ב-DB):** `phone` / `birth_year` / `gender` הם NOT NULL;
+  `gender` הוא ערך קנוני `CHECK (gender IN ('male','female','other'))` — נאסף בטופסי הקליטה
+  (`NewRequest`, `PhoneRequestDialog`) ומוצג בעברית דרך `genderLabel` (`lib/format.js`). **גיל נגזר
+  ואינו נשמר** — `age = currentYear − birth_year` (`ageFromBirthYear`); עמודת `age` הוסרה (migration 18).
 - **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
   עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
 - כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).
@@ -111,7 +115,9 @@ src/
 - **ביטול:** `cancelAppointment(id)` — מפנה את המשבצת.
 - **מסלול AI:** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id)`.
 - **ניהול טיפולים (Settings):** `addTreatment` / `updateTreatment` / `removeTreatment`.
-- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`, `updatePatient`.
+- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `addTherapist`/`updateTherapist`, `addPatient`, `updatePatient`.
+  **המטפל (`therapists`) הוא ישות הספק היחידה** — הזמנה, יומן, `treatment_providers` ולוגין המטפל תלויים בו; נוצר דרך `addTherapist` (הגדרות → מטפלים) והופך לניתן-להזמנה כששויך לו טיפול. רשומת `staff` היא **ספר משרד בלבד** (מזכירות/מנהל) ואינה מקושרת ל-`therapists`.
+  **ארכיון מטפל (soft-delete):** מטפל עוזב מסומן `active:false` דרך `updateTherapist` (לא נמחק — `appointments.therapist_id` הוא ON DELETE RESTRICT וההיסטוריה נשמרת). `activeTherapists` (נגזר) מסנן את המוסתרים מהזמנה/יומן/בוררי המטפלים ומטבלת השיוך; `therapistById` נשאר מעל **כל** המטפלים כדי שתורים היסטוריים ימשיכו להיות מוצגים. שחזור = `active:true`. אותו דפוס כמו `treatments.active`.
 - **מטופל מחובר:** `currentPatientId` (state) + `setCurrentPatient(id|null)` — נקבע בכניסת המטופל.
 - **לוחות יומיים (Dashboard/DoctorDay):** תורי **היום שהסתיימו** נשארים גלויים כל היום בעיצוב **מעומעם**
   (opacity + badge) — רקורד ולא "לטיפול"; אינם נספרים ב"נותרו להיום". (תורי-עבר לא-סומנו עדיין הולכים לתור הסקירה.)
@@ -157,7 +163,12 @@ Edge: `classify-request` (סיווג) ו-`send-reminder` (וואטסאפ/SMS) מ
 - **RBAC:** תפקיד יחיד per-user ב-App Metadata (לא ניתן לשינוי מהלקוח); 4 התפקידים של `ROLES`; Least Privilege.
 - **Multi-tenant:** כל רשומה נושאת `clinic_id` → בידוד מלא בין קליניקות.
 - **RLS = שכבת האכיפה המרכזית:** מטופל→`patient_id = auth.uid()`; מטפל→`therapist_id = auth.uid()`
-  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד. **היסטוריית ביקורים:** מטפל
+  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד. **הרשמה עצמית של מטופל:** מטופל
+  חדש (ללא רשומה) יוצר את רשומת ה-`patients` **של עצמו** בהזמנה הראשונה — policy `patients_insert_self`
+  (`role='patient'` + `clinic_id` + `profile_id = auth.uid()`, migration 21) + אינדקס ייחודי חלקי על
+  `profile_id` (רשומה אחת לכל לוגין). `addPatient` מטביע `profile_id = auth.uid()` רק בהרשמה עצמית (רשומות
+  ספר-משרד של המזכירה נשארות `profile_id = null`), וה-store משרשר את insert התור/הבקשה **אחרי** שרשומת
+  המטופל נשמרה (`afterPatientWrite`) כדי ש-`app.patient_id()` יפתור בבדיקת ה-RLS. **היסטוריית ביקורים:** מטפל
   רשאי לקרוא את **כל** התורים של מטופל שהוא מטפל בו (`app.therapist_treats_patient(patient_id)`, migration 13)
   — לתיק המטופל חוצה-המטפלים; מסכי היום/היומן שלו עדיין מסננים ל-`therapist_id` שלו ב-UI. התור נושא
   `clinical_note` (סיכום קליני שמוצג בהיסטוריה). מטפל מקדם את הביקור **שלו** ל-`הגיע`/`הסתיים` דרך RPC

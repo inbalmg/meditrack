@@ -7,6 +7,8 @@
 --   Secretary     : secretary@meditrack.test / Meditrack1!
 --   Therapist     : therapist@meditrack.test / Meditrack1!   (→ רועי שקד)
 --   Patient       : patient@meditrack.test   / Meditrack1!   (→ רותם ברק)
+--   New patient    : newpatient@meditrack.test / Meditrack1! (role=patient, NO patients
+--                    row → currentPatientId=null → first-time self-booking flow)
 --
 -- NOTE: production patient login = phone OTP; email+password here is only to make the
 -- patient account testable deterministically. Passwords are bcrypt-hashed via pgcrypto.
@@ -41,8 +43,17 @@ values
    'patient@meditrack.test',
    extensions.crypt('Meditrack1!', extensions.gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"],"clinic_id":"3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0","role":"patient"}',
-   '{"full_name":"רותם ברק"}', now(), now(), '', '', '', '', '', '', '', '')
+   '{"full_name":"רותם ברק"}', now(), now(), '', '', '', '', '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000',
+   '50000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated',
+   'newpatient@meditrack.test',
+   extensions.crypt('Meditrack1!', extensions.gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"],"clinic_id":"3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0","role":"patient"}',
+   '{"full_name":"מטופל/ת חדש/ה"}', now(), now(), '', '', '', '', '', '', '', '')
 on conflict (id) do nothing;
+
+-- NOTE: newpatient@ is deliberately NOT linked to any public.patients row — it models a
+-- brand-new patient whose record is created only when they finish their first booking.
 
 -- Link the therapist/patient auth users to their existing domain rows.
 update public.therapists set profile_id = '20000000-0000-0000-0000-000000000002'

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   CalendarDays,
@@ -6,6 +6,8 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  ArrowRight,
+  Clock,
 } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
@@ -83,8 +85,8 @@ export default function ClinicLayout() {
           <div className="flex items-center gap-3 px-2 py-2">
             <Avatar initials={role.id === 'manager' ? 'מנ' : 'מז'} color="#14b8a6" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{role.label}</p>
-              <p className="text-[11px] text-slate-400 truncate">מרפאת שקד · מרכז</p>
+              <p className="text-base font-medium text-white truncate">{role.label}</p>
+              <p className="text-sm text-slate-400 truncate">מרפאת שקד · מרכז</p>
             </div>
           </div>
           {/* Dedicated, explicit logout row (icon + label). */}
@@ -100,7 +102,7 @@ export default function ClinicLayout() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <TopBar role={role} onLogout={handleLogout} nav={nav} />
+        <TopBar onLogout={handleLogout} nav={nav} />
         <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto">
           <Outlet />
         </main>
@@ -109,16 +111,36 @@ export default function ClinicLayout() {
   )
 }
 
-function TopBar({ role, onLogout, nav }) {
+function TopBar({ onLogout, nav }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  // תאריך היום מוצג בכל המסכים חוץ מ"הגדרות".
+  const isSettings = location.pathname.startsWith('/clinic/settings')
+  const today = new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })
   return (
     <header className="sticky top-0 z-20 bg-canvas/80 backdrop-blur border-b border-slate-200/70">
       <div className="h-16 px-4 sm:px-6 flex items-center gap-3 max-w-[1400px] mx-auto">
+        {/* חזרה למסך הקודם */}
+        <button
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+        >
+          <ArrowRight size={18} className="shrink-0" />
+          <span className="hidden sm:inline">חזרה</span>
+        </button>
         {/* Mobile brand + nav */}
         <div className="md:hidden flex items-center gap-2">
           <CrossMark className="h-7 w-7" />
           <span className="font-bold text-lg text-slate-800">MediTrack</span>
         </div>
         <div className="flex-1" />
+        {/* תאריך היום — מיושר לגובה הלוגו, בכל המסכים חוץ מהגדרות */}
+        {!isSettings && (
+          <div className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-teal-700 whitespace-nowrap">
+            <Clock size={15} className="shrink-0" />
+            {today}
+          </div>
+        )}
         <div className="md:hidden">
           <button onClick={onLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500">
             <LogOut size={20} />

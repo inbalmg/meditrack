@@ -5,7 +5,7 @@ import { CalendarClock, Sparkles, ArrowLeft, Clock, ListChecks, CheckCircle2 } f
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
 import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
-import { hhmm } from '../../lib/format.js'
+import { hhmm, genderLabel } from '../../lib/format.js'
 import { classifyRequest } from '../../lib/aiClassifier.js'
 
 const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green', 'לא הגיע': 'red' }
@@ -116,7 +116,7 @@ function NextCard({ appt, patient }) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
           <p className="text-lg font-bold leading-tight">{patient.name}</p>
-          <p className="text-teal-50/90 text-sm">{patient.age} · {patient.gender === 'ז' ? 'זכר' : 'נקבה'} · {patient.phone}</p>
+          <p className="text-teal-50/90 text-sm">{patient.age} · {genderLabel(patient.gender)} · {patient.phone}</p>
         </div>
         <div className="text-left">
           <p className="text-2xl font-bold tabular-nums leading-none">{hhmm(appt.start)}</p>
