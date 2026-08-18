@@ -4,7 +4,7 @@ import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
 import { clsx } from '../components/clsx.js'
-import logoUrl from '../assets/meditrack-logo.png'
+import logoUrl from '../assets/meditrack-logo.svg'
 
 export default function DoctorLayout() {
   const { role, logout } = useSession()

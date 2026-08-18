@@ -108,7 +108,7 @@ export default function MyAppointments() {
             <div>
               <p className="text-sm font-medium text-slate-700">תזכורות אוטומטיות פעילות</p>
               <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                נשלח לך תזכורת בוואטסאפ/SMS {settings.reminderHours} שעות לפני כל תור, כדי שלא תפספס/י.
+                נשלח לך תזכורת במייל / וואטסאפ יום לפני כל תור, כדי שלא תפספס/י.
               </p>
             </div>
           </div>

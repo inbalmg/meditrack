@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ListChecks, Plus, Zap, User, ArrowLeftRight, Check, Clock, Pencil, Trash2 } from 'lucide-react'
+import { ListChecks, Plus, Zap, User, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
 import UnresolvedAppointments from '../../components/UnresolvedAppointments.jsx'
+import TaskArchiveModal from '../../components/TaskArchiveModal.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { friendlyDate, hhmm } from '../../lib/format.js'
 import { isAfter, startOfDay, subDays } from 'date-fns'
@@ -17,12 +18,13 @@ const COLUMNS = [
 
 const NEXT = { פתוח: 'בטיפול', בטיפול: 'הושלם' }
 
-// Recency windows for the "הושלם" column, so completed tasks don't pile up. Default
-// is the recent window ("השבוע"); "הכל" reveals everything so nothing feels lost.
+// Recency windows for the "הושלם" column. The board mirror only holds completed tasks
+// from the last 15 days (older ones live in the Task Archive drawer), so these windows
+// all sit inside that bound. Default is "השבוע"; "15 ימים אחרונים" is the full window.
 const DONE_RANGES = [
-  { key: 'today', label: 'היום' },
-  { key: 'week', label: 'השבוע' },
-  { key: 'all', label: 'הכל' },
+  { key: 'today', label: 'היום', days: 0 },
+  { key: 'week', label: 'השבוע', days: 7 },
+  { key: 'last15', label: '15 ימים אחרונים', days: 15 },
 ]
 
 // When a completed task was finished. Falls back to due/createdAt for legacy rows
@@ -30,10 +32,10 @@ const DONE_RANGES = [
 const doneAnchor = (t) => t.completedAt ?? t.due ?? t.createdAt
 
 function withinRange(t, range) {
-  if (range === 'all') return true
   const anchor = doneAnchor(t)
   if (!anchor) return true
-  const cutoff = range === 'today' ? startOfDay(new Date()) : subDays(new Date(), 7)
+  const days = DONE_RANGES.find((r) => r.key === range)?.days ?? 15
+  const cutoff = days === 0 ? startOfDay(new Date()) : subDays(new Date(), days)
   return isAfter(anchor, cutoff)
 }
 
@@ -50,6 +52,8 @@ export default function TasksBoard() {
   const [confirmDelete, setConfirmDelete] = useState(null)
   // Recency window for the completed column (default: recent week).
   const [doneRange, setDoneRange] = useState('week')
+  // Task Archive side-drawer (the full completed backlog, loaded on demand).
+  const [archiveOpen, setArchiveOpen] = useState(false)
 
   // Deep-link target from the Dashboard "תורים שלא סומנו" KPI: scroll the review
   // queue into view and briefly ring it so the redirect lands where it should.
@@ -71,9 +75,14 @@ export default function TasksBoard() {
           <h1 className="text-2xl font-bold text-slate-800">לוח משימות</h1>
           <p className="text-slate-500 mt-0.5">יצירה, שיוך לאחראי ומעקב · משימות אוטומטיות מסומנות בתגית</p>
         </div>
-        <Button onClick={() => setEditing((e) => (e === 'new' ? null : 'new'))}>
-          <Plus size={17} /> משימה חדשה
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setArchiveOpen(true)}>
+            <Archive size={17} /> ארכיון
+          </Button>
+          <Button onClick={() => setEditing((e) => (e === 'new' ? null : 'new'))}>
+            <Plus size={17} /> משימה חדשה
+          </Button>
+        </div>
       </div>
 
       <UnresolvedAppointments ref={reviewRef} highlighted={highlighted} />
@@ -136,7 +145,7 @@ export default function TasksBoard() {
                     <Empty
                       icon={ListChecks}
                       title={isDone && all.length > 0 ? 'אין משימות שהושלמו בטווח' : 'אין משימות'}
-                      hint={isDone && all.length > 0 ? 'בחרו "הכל" לצפייה בכל המשימות שהושלמו' : undefined}
+                      hint={isDone && all.length > 0 ? 'הרחיבו את הטווח או פתחו את הארכיון' : undefined}
                     />
                   </div>
                 ) : (
@@ -197,6 +206,8 @@ export default function TasksBoard() {
           )
         })}
       </div>
+
+      {archiveOpen && <TaskArchiveModal onClose={() => setArchiveOpen(false)} />}
 
       {confirmDelete && (
         <ConfirmDialog

@@ -1,14 +1,15 @@
 // MediTrack — Edge Function: send-reminder / send-confirmation
-// Server-side port of sendAppointmentConfirmation() in src/data/store.jsx. Composes
-// the Hebrew WhatsApp/SMS message and sends it via the provider (Twilio) when its
-// secrets are configured; otherwise runs in STUB mode and returns the composed text
-// (same behavior as the current console.info stub — messaging is the cost center).
+// Composes the Hebrew appointment confirmation and delivers it over the requested
+// channel: WhatsApp/SMS via Twilio (default) or email via Resend. Each provider runs in
+// STUB mode when its secrets aren't configured, returning the composed text instead of
+// sending (messaging is the cost center) — same behavior as the original console stub.
 //
-//   input : { appointmentId }  OR  { patientName, phone, visitType, therapistName, start }
-//   output: { sent, mode, to, message }
+//   input : { appointmentId, channel? }  OR  { patientName, phone, email, visitType, therapistName, start, channel? }
+//           channel: 'sms' (default) | 'email'
+//   output: { sent, mode, channel, to, message, subject? }
 //
-// The provider credentials (TWILIO_*) live only in Edge Function secrets — never in
-// the browser. Restricted to staff (secretary/manager) via the JWT role claim.
+// The provider credentials (TWILIO_* / RESEND_API_KEY) live only in Edge Function secrets
+// — never in the browser. Restricted to staff (secretary/manager) via the JWT role claim.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -44,6 +45,17 @@ function composeMessage({ patientName, visitType, therapistName, start }) {
     `מרפאת MediTrack — לשינוי/ביטול השיבו להודעה זו.`
 }
 
+// Email confirmation — the same appointment details, formatted for email (subject + body).
+function composeEmail({ patientName, visitType, therapistName, start }) {
+  const when = formatWhen(start)
+  const subject = `אישור תור — ${visitType} · מרפאת MediTrack`
+  const body = `שלום ${patientName},\n\n` +
+    `תורך ל${visitType} עם ${therapistName ?? ''} נקבע ל${when}.\n\n` +
+    `לשינוי או ביטול ניתן להשיב למייל זה או ליצור קשר עם המרפאה.\n\n` +
+    `בברכה,\nמרפאת MediTrack`
+  return { subject, body }
+}
+
 // Sends via Twilio if configured; else returns null (stub mode).
 async function sendViaTwilio(to: string, body: string): Promise<boolean | null> {
   const sid = Deno.env.get('TWILIO_ACCOUNT_SID')
@@ -61,6 +73,22 @@ async function sendViaTwilio(to: string, body: string): Promise<boolean | null> 
     body: form,
   })
   if (!resp.ok) throw new Error(`twilio ${resp.status}: ${await resp.text()}`)
+  return true
+}
+
+// Sends via Resend if configured; else returns null (stub mode) — same pattern as SMS,
+// keeping the email provider key (RESEND_API_KEY) server-side only.
+async function sendViaEmail(to: string, subject: string, body: string): Promise<boolean | null> {
+  const key = Deno.env.get('RESEND_API_KEY')
+  const from = Deno.env.get('FROM_EMAIL') // e.g. 'MediTrack <clinic@meditrack.co.il>'
+  if (!key || !from) return null // stub mode
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to, subject, text: body }),
+  })
+  if (!resp.ok) throw new Error(`resend ${resp.status}: ${await resp.text()}`)
   return true
 }
 
@@ -89,12 +117,14 @@ Deno.serve(async (req) => {
 
     const input = await req.json()
     let fields = input
+    // Channel: 'sms' (default — WhatsApp/SMS via Twilio) or 'email' (via Resend).
+    const channel = input.channel === 'email' ? 'email' : 'sms'
 
     // If only an appointmentId is given, hydrate the fields from the DB (RLS: staff read clinic-wide).
     if (input.appointmentId) {
       const { data: appt, error } = await supabase
         .from('appointments')
-        .select('start, visit_type, patients(name, phone), therapists(name)')
+        .select('start, visit_type, patients(name, phone, email), therapists(name)')
         .eq('id', input.appointmentId)
         .single()
       if (error || !appt) {
@@ -103,10 +133,27 @@ Deno.serve(async (req) => {
       fields = {
         patientName: appt.patients?.name,
         phone: appt.patients?.phone,
+        email: appt.patients?.email,
         visitType: appt.visit_type,
         therapistName: appt.therapists?.name,
         start: appt.start,
       }
+    }
+
+    if (channel === 'email') {
+      if (!fields.email) {
+        return new Response(JSON.stringify({ error: 'no email on record' }), { status: 400, headers: JSON_HEADERS })
+      }
+      const { subject, body } = composeEmail(fields)
+      const sent = await sendViaEmail(fields.email, subject, body)
+      return new Response(JSON.stringify({
+        sent: sent === true,
+        mode: sent === null ? 'stub' : 'resend',
+        channel: 'email',
+        to: fields.email,
+        subject,
+        message: body,
+      }), { headers: JSON_HEADERS })
     }
 
     if (!fields.phone) {
@@ -119,6 +166,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       sent: sent === true,
       mode: sent === null ? 'stub' : 'twilio',
+      channel: 'sms',
       to: fields.phone,
       message,
     }), { headers: JSON_HEADERS })

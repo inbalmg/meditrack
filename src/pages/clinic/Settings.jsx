@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw } from 'lucide-react'
+import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw, ChevronDown, Archive } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { ROLES } from '../../session.jsx'
 import { Card, CardHeader, Button, Badge } from '../../components/ui.jsx'
@@ -25,6 +25,9 @@ export default function Settings() {
   const [newName, setNewName] = useState('')
   const [newRole, setNewRole] = useState('secretary')
   const [newTreatment, setNewTreatment] = useState('')
+  // Archived-therapists section — collapsed by default so it doesn't clutter the
+  // day-to-day Settings view; opened on demand to view/restore.
+  const [archiveOpen, setArchiveOpen] = useState(false)
 
   // Add-therapist form state.
   const [newTherName, setNewTherName] = useState('')
@@ -34,7 +37,9 @@ export default function Settings() {
   // Derived so feedback is reactive as the user types (only once they've typed).
   const nameError = newName ? validateStaffName(newName) : ''
   const therNameError = newTherName ? validateTherapistName(newTherName, therapists.map((t) => t.name)) : ''
-  const therSpecialtyError = validateSpecialty(newTherSpecialty)
+  // Specialty is required; only surface the error once the user has typed, but the
+  // Add button below stays disabled while it's blank.
+  const therSpecialtyError = newTherSpecialty ? validateSpecialty(newTherSpecialty) : ''
 
   // Only office staff belong in the Staff Users list (therapists have their own section).
   const officeStaff = staff.filter((s) => OFFICE_ROLES.includes(s.roleId))
@@ -58,7 +63,7 @@ export default function Settings() {
   }
 
   function handleAddTherapist() {
-    if (!newTherName || therNameError || therSpecialtyError) return
+    if (!newTherName || !newTherSpecialty.trim() || therNameError || therSpecialtyError) return
     addTherapist({ name: newTherName, specialty: newTherSpecialty, color: newTherColor })
     setNewTherName('')
     setNewTherSpecialty('')
@@ -78,18 +83,9 @@ export default function Settings() {
         <div className="p-5 space-y-4">
           <ToggleRow
             label="תזכורות אוטומטיות למטופלים"
-            hint="שליחת תזכורת בוואטסאפ/SMS לפני התור"
+            hint="שליחת תזכורת במייל / וואטסאפ יום לפני מועד התור"
             checked={settings.remindersEnabled}
             onChange={(v) => updateSettings({ remindersEnabled: v })}
-          />
-          <NumberRow
-            label="שליחת תזכורת"
-            suffix="שעות לפני התור"
-            value={settings.reminderHours}
-            min={1}
-            max={72}
-            disabled={!settings.remindersEnabled}
-            onChange={(v) => updateSettings({ reminderHours: v })}
           />
 
           <div className="border-t border-slate-100 pt-4 space-y-4">
@@ -126,17 +122,32 @@ export default function Settings() {
           <div>
             <h3 className="text-sm font-medium text-slate-700 mb-2.5">מטפלים</h3>
             <div className="space-y-2">
-              {activeTherapists.map((t) => (
-                <div key={t.id} className="flex items-center gap-2 flex-wrap rounded-xl ring-1 ring-slate-200 p-3">
+              {activeTherapists.map((t) => {
+                // Required-field enforcement on inline edits: name (unique) + specialty.
+                // The store skips persisting an invalid value; here we flag it visually.
+                const rowNameError = validateTherapistName(t.name, therapists.filter((x) => x.id !== t.id).map((x) => x.name))
+                const rowSpecialtyError = validateSpecialty(t.specialty)
+                return (
+                <div key={t.id} className="rounded-xl ring-1 ring-slate-200 p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
                   <input
                     value={t.name}
                     onChange={(e) => updateTherapist(t.id, { name: e.target.value })}
-                    className="h-9 flex-1 min-w-[120px] rounded-lg ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                    aria-invalid={!!rowNameError}
+                    className={clsx(
+                      'h-9 flex-1 min-w-[120px] rounded-lg ring-1 px-3 text-sm outline-none focus:ring-2',
+                      rowNameError ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                    )}
                   />
                   <input
-                    value={t.specialty}
+                    value={t.specialty ?? ''}
                     onChange={(e) => updateTherapist(t.id, { specialty: e.target.value })}
-                    className="h-9 w-48 rounded-lg ring-1 ring-slate-300 px-3 text-sm text-slate-600 outline-none focus:ring-2 focus:ring-teal-500"
+                    placeholder="התמחות (חובה)"
+                    aria-invalid={!!rowSpecialtyError}
+                    className={clsx(
+                      'h-9 w-48 rounded-lg ring-1 px-3 text-sm text-slate-600 outline-none focus:ring-2',
+                      rowSpecialtyError ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                    )}
                   />
                   <div className="flex items-center gap-1.5">
                     {THERAPIST_COLORS.map((c) => (
@@ -159,8 +170,13 @@ export default function Settings() {
                   >
                     <Trash2 size={16} />
                   </button>
+                  </div>
+                  {(rowNameError || rowSpecialtyError) && (
+                    <p className="text-xs text-red-500 mt-1.5 px-1">{rowNameError || rowSpecialtyError}</p>
+                  )}
                 </div>
-              ))}
+                )
+              })}
 
               {/* Add therapist — the only way to create a bookable provider. */}
               <div className="rounded-xl border-2 border-dashed border-slate-200 p-3 space-y-2">
@@ -182,7 +198,7 @@ export default function Settings() {
                     onChange={(e) => setNewTherSpecialty(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddTherapist()}
                     maxLength={SPECIALTY_MAX}
-                    placeholder="התמחות"
+                    placeholder="התמחות (חובה)"
                     aria-invalid={!!therSpecialtyError}
                     className={clsx(
                       'h-9 w-48 rounded-lg ring-1 px-3 text-sm text-slate-600 outline-none focus:ring-2',
@@ -203,7 +219,7 @@ export default function Settings() {
                       />
                     ))}
                   </div>
-                  <Button size="sm" disabled={!newTherName || !!therNameError || !!therSpecialtyError} onClick={handleAddTherapist}>
+                  <Button size="sm" disabled={!newTherName || !newTherSpecialty.trim() || !!therNameError || !!therSpecialtyError} onClick={handleAddTherapist}>
                     <UserPlus size={15} /> הוספת מטפל
                   </Button>
                 </div>
@@ -215,26 +231,42 @@ export default function Settings() {
             <p className="text-xs text-slate-400 mt-2">הצבע והשם מתעדכנים מיד ביומן ובבורר המשבצות. מטפל חדש יופיע מיד ביומן; כדי לאפשר הזמנה עצמית, שייכו לו סוג טיפול למטה.</p>
 
             {archivedTherapists.length > 0 && (
-              <div className="mt-4">
-                <h4 className="text-xs font-medium text-slate-500 mb-2">בארכיון ({archivedTherapists.length})</h4>
-                <div className="space-y-2">
-                  {archivedTherapists.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 p-3">
-                      <span className="h-3 w-3 rounded-full shrink-0 opacity-50" style={{ backgroundColor: t.color }} />
-                      <span className="flex-1 min-w-0 text-sm text-slate-500 truncate">
-                        {t.name}{t.specialty ? ` · ${t.specialty}` : ''}
-                      </span>
-                      <button
-                        onClick={() => updateTherapist(t.id, { active: true })}
-                        title="שחזור מהארכיון"
-                        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-teal-700 ring-1 ring-teal-200 hover:bg-teal-50"
-                      >
-                        <RotateCcw size={14} /> שחזור
-                      </button>
+              <div className="mt-4 rounded-xl ring-1 ring-slate-200 overflow-hidden">
+                {/* Collapsible archive — closed by default; opens to view/restore. */}
+                <button
+                  type="button"
+                  onClick={() => setArchiveOpen((o) => !o)}
+                  aria-expanded={archiveOpen}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-right hover:bg-slate-50 transition"
+                >
+                  <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Archive size={14} className="text-slate-400" />
+                    בארכיון ({archivedTherapists.length})
+                  </span>
+                  <ChevronDown size={16} className={clsx('text-slate-400 transition-transform shrink-0', archiveOpen ? '' : '-rotate-90')} />
+                </button>
+                {archiveOpen && (
+                  <div className="px-3 pb-3 pt-1 border-t border-slate-100">
+                    <div className="space-y-2 mt-2">
+                      {archivedTherapists.map((t) => (
+                        <div key={t.id} className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 p-3">
+                          <span className="h-3 w-3 rounded-full shrink-0 opacity-50" style={{ backgroundColor: t.color }} />
+                          <span className="flex-1 min-w-0 text-sm text-slate-500 truncate">
+                            {t.name}{t.specialty ? ` · ${t.specialty}` : ''}
+                          </span>
+                          <button
+                            onClick={() => updateTherapist(t.id, { active: true })}
+                            title="שחזור מהארכיון"
+                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-teal-700 ring-1 ring-teal-200 hover:bg-teal-50"
+                          >
+                            <RotateCcw size={14} /> שחזור
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-400 mt-2">מטפלים בארכיון מוסתרים מהזמנה ומהיומן; התורים ההיסטוריים שלהם נשמרים.</p>
+                    <p className="text-xs text-slate-400 mt-2">מטפלים בארכיון מוסתרים מהזמנה ומהיומן; התורים ההיסטוריים שלהם נשמרים.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -358,9 +390,9 @@ export default function Settings() {
   )
 }
 
-function ToggleRow({ label, hint, checked, onChange, badge }) {
+function ToggleRow({ label, hint, checked, onChange, badge, disabled }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className={clsx('flex items-center justify-between gap-4', disabled && 'opacity-50')}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-slate-700">{label}</p>
@@ -371,9 +403,10 @@ function ToggleRow({ label, hint, checked, onChange, badge }) {
       <button
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={clsx(
-          'relative h-6 w-11 rounded-full transition shrink-0',
+          'relative h-6 w-11 rounded-full transition shrink-0 disabled:cursor-not-allowed',
           checked ? 'bg-teal-600' : 'bg-slate-300',
         )}
       >

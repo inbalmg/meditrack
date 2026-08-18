@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Loader2,
+  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Loader2, Mail,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
@@ -12,7 +12,7 @@ import {
   firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
   genderLabel,
 } from '../../lib/format.js'
-import { phoneValid, normalizePhone, birthYearValid, isValidGender, GENDERS } from '../../lib/validation.js'
+import { phoneValid, normalizePhone, birthYearValid, isValidGender, GENDERS, emailValid, normalizeEmail } from '../../lib/validation.js'
 import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
 
 // 30-minute slot grid for a provider + date; a slot is available if it fits the
@@ -50,7 +50,7 @@ function meaningfulDescription(text) {
 
 export default function NewRequest() {
   const {
-    activeTherapists, treatmentsForTherapist, appointments, currentPatientId,
+    bookableTherapists, treatmentsForTherapist, appointments, currentPatientId,
     therapistById, treatmentById, patientById,
     bookAppointment, submitRequest, addPatient, updatePatient, setCurrentPatient,
     cancelAppointment,
@@ -79,8 +79,11 @@ export default function NewRequest() {
   const [birthYear, setBirthYear] = useState('')
   // Gender — required for a new patient (male/female/other).
   const [gender, setGender] = useState(me?.gender ?? '')
+  // Email — OPTIONAL secondary notification channel; prefilled for a registered patient.
+  const [email, setEmail] = useState(me?.email ?? '')
   const contactValid =
     phoneValid(phone) &&
+    (!email.trim() || emailValid(email)) &&
     (!isNewPatient || (name.trim().length > 0 && birthYearValid(birthYear) && isValidGender(gender)))
 
   // Ensure a patient record exists (creating a new one / saving an edited phone)
@@ -88,14 +91,17 @@ export default function NewRequest() {
   function commitContact() {
     if (!contactValid) return null
     if (isNewPatient) {
-      // addPatient normalizes the phone; pass the raw value through.
-      const p = addPatient({ name: name.trim(), phone, birthYear: Number(birthYear), gender })
+      // addPatient normalizes phone + email; pass the raw values through.
+      const p = addPatient({ name: name.trim(), phone, birthYear: Number(birthYear), gender, email })
       setCurrentPatient(p.id)
       return p.id
     }
-    // Persist only a real change, comparing on the normalized form so re-typing the
-    // same number with/without dashes isn't treated as an edit.
-    if (normalizePhone(phone) !== normalizePhone(me.phone)) updatePatient(currentPatientId, { phone })
+    // Persist only real changes, comparing on the normalized form so re-typing the
+    // same value with/without dashes (phone) or casing (email) isn't treated as an edit.
+    const patch = {}
+    if (normalizePhone(phone) !== normalizePhone(me.phone)) patch.phone = phone
+    if (normalizeEmail(email) !== normalizeEmail(me.email)) patch.email = email
+    if (Object.keys(patch).length) updatePatient(currentPatientId, patch)
     return currentPatientId
   }
 
@@ -168,6 +174,7 @@ export default function NewRequest() {
     setPhone(current?.phone ?? '')
     setBirthYear('')
     setGender(current?.gender ?? '')
+    setEmail(current?.email ?? '')
   }
 
   // ---------- Booked confirmation ----------
@@ -207,6 +214,7 @@ export default function NewRequest() {
       name={name} setName={setName} phone={phone} setPhone={setPhone}
       birthYear={birthYear} setBirthYear={setBirthYear}
       gender={gender} setGender={setGender}
+      email={email} setEmail={setEmail}
       contactValid={contactValid}
       onBack={() => setMode('book')}
       onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
@@ -250,7 +258,7 @@ export default function NewRequest() {
       {/* Step 1 — provider */}
       <Step n={1} label="בחירת מטפל/ת" done={!!therapistId}>
         <div className="space-y-2">
-          {activeTherapists.map((t) => (
+          {bookableTherapists.map((t) => (
             <button
               key={t.id}
               onClick={() => pickTherapist(t.id)}
@@ -363,7 +371,7 @@ export default function NewRequest() {
           step so the numbering stays contiguous (1→2→3→4). */}
       {therapistId && treatmentId && (
         <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
-          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
+          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
         </Step>
       )}
 
@@ -375,9 +383,10 @@ export default function NewRequest() {
   )
 }
 
-function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender }) {
+function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender, email, setEmail }) {
   const birthYearInvalid = (birthYear ?? '').trim().length > 0 && !birthYearValid(birthYear)
   const phoneInvalid = phone.trim().length > 0 && !phoneValid(phone)
+  const emailInvalid = (email ?? '').trim().length > 0 && !emailValid(email)
   // Surface the gender requirement once the user has begun filling the form.
   const genderMissing = isNew && !isValidGender(gender) && (name.trim() !== '' || (birthYear ?? '') !== '' || phone.trim() !== '')
   return (
@@ -468,11 +477,38 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
           </p>
         )}
       </div>
+      {/* Email — OPTIONAL secondary channel (no RequiredMark). Blocks only when a
+          value is present but malformed; empty is always valid. */}
+      <div>
+        <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1.5">
+          <Mail size={14} className="text-teal-600" /> אימייל <span className="text-slate-400">(רשות)</span>
+        </label>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          aria-invalid={emailInvalid}
+          inputMode="email"
+          type="email"
+          dir="ltr"
+          placeholder="name@example.com"
+          className={clsx(
+            'w-full rounded-xl ring-1 px-3 py-2.5 text-sm text-right outline-none focus:ring-2',
+            emailInvalid ? 'ring-red-300 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+          )}
+        />
+        {emailInvalid ? (
+          <p className="text-[11px] text-red-500 mt-1.5">כתובת אימייל לא תקינה</p>
+        ) : (
+          <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+            <Mail size={12} /> לקבלת אישורים והתראות במייל
+          </p>
+        )}
+      </div>
     </div>
   )
 }
 
-function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender, contactValid, onBack, onProceed, onSendToClinic }) {
+function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender, email, setEmail, contactValid, onBack, onProceed, onSendToClinic }) {
   const { therapistById, treatmentById, classifyAsync } = useData()
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
@@ -530,7 +566,7 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirth
               <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
               <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
               <div className="mt-4">
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
               </div>
               <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'הפניה דחופה')}>
                 שליחת הפנייה למרפאה
@@ -546,7 +582,7 @@ function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirth
               </Button>
               <div className="mt-4 pt-4 border-t border-teal-100">
                 <p className="text-xs text-slate-500 mb-3">או השאירו פרטים ונחזור אליכם לתיאום מתאים:</p>
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} />
+                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
                 <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'פורטל')}>
                   <Phone size={16} /> שליחת פנייה למרפאה
                 </Button>

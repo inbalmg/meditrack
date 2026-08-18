@@ -62,13 +62,15 @@ export function treatmentsForTherapist(therapistId) {
 }
 
 // Age is derived from birthYear (see lib/format.js → ageFromBirthYear), not stored.
+// email is OPTIONAL (secondary notification channel) — some patients have none on
+// purpose (e.g. older patients), so the demo reflects the nullable field.
 export const patients = [
-  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'female' },
-  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'male' },
-  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'female' },
-  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'male' },
-  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'female' },
-  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'female' },
+  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'female', email: 'rotem.barak@gmail.com' },
+  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'male', email: null },
+  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'female', email: 'shira.golan@gmail.com' },
+  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'male', email: 'noam.f@outlook.com' },
+  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'female', email: null },
+  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'female', email: null },
 ]
 
 // The signed-in patient for the mobile portal demo.

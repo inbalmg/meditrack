@@ -373,7 +373,7 @@ export default function Welcome({ heading, onBack, children }) {
           color: 'rgba(200,218,224,0.6)',
         }}
       >
-        פרויקט גמר · קורס מיישם AI · יולי 2026
+        פרויקט גמר · קורס מיישם AI · אוגוסט 2026
       </p>
       <Constellation />
 

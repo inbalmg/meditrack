@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { addDays, isSameDay, set } from 'date-fns'
-import { X, Sparkles, CalendarDays, Clock, Check, Route, ChevronRight, ChevronLeft, Stethoscope, Send } from 'lucide-react'
+import { X, Sparkles, CalendarDays, Clock, Check, Route, ChevronRight, ChevronLeft, Stethoscope, Send, Mail } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Card, Badge, Button, Avatar } from './ui.jsx'
 import { clsx } from './clsx.js'
@@ -33,6 +34,10 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
   const [treatmentId, setTreatmentId] = useState(ai.treatmentId)
   // Whether to fire the WhatsApp/SMS confirmation to the patient on approval.
   const [notify, setNotify] = useState(true)
+  // Whether to also email the confirmation. Opt-out by default when the patient has an
+  // email on record; disabled (and forced off) when there's no address to send to.
+  const hasEmail = !!patient.email
+  const [notifyEmail, setNotifyEmail] = useState(hasEmail)
   const selectedTreatment = treatmentById[treatmentId]
   const duration = selectedTreatment?.durationMin ?? visitDurations[ai.visitType] ?? 20
   const aiDuration = visitDurations[ai.visitType] ?? 20
@@ -142,12 +147,17 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
       start: set(date, { hours: selected.hour, minutes: selected.minute, seconds: 0, milliseconds: 0 }),
       durationMin: duration,
       notify,
+      notifyEmail: notifyEmail && hasEmail,
     })
   }
 
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade" onClick={onClose}>
-      <Card className="w-full max-w-lg p-0 overflow-hidden max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+  // Portal to <body>: the page wrapper keeps a persistent transform (animate-fade with
+  // fill-mode: both), which would otherwise make it the containing block for this fixed
+  // overlay — pinning inset-0 to the tall page box and pushing the centered card off-screen.
+  // Top-aligned (items-start) with a bounded height so the footer buttons always stay in view.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-center items-start p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <Card className="w-full max-w-lg p-0 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -286,16 +296,35 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
         {/* Footer */}
         <div className="px-5 py-4 border-t border-slate-100 space-y-3">
           {/* Notify the patient with an automatic confirmation message */}
-          <label className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={notify}
-              onChange={(e) => setNotify(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 accent-teal-600"
-            />
-            <Send size={15} className="text-teal-600 shrink-0" />
-            שלח הודעת אישור אוטומטית למטופל (WhatsApp/SMS)
-          </label>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={notify}
+                onChange={(e) => setNotify(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 accent-teal-600"
+              />
+              <Send size={15} className="text-teal-600 shrink-0" />
+              שלח הודעת אישור אוטומטית למטופל (WhatsApp/SMS)
+            </label>
+            <label
+              className={clsx(
+                'flex items-center gap-2.5 text-sm select-none',
+                hasEmail ? 'text-slate-700 cursor-pointer' : 'text-slate-400 cursor-not-allowed',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={notifyEmail && hasEmail}
+                disabled={!hasEmail}
+                onChange={(e) => setNotifyEmail(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 accent-teal-600 disabled:opacity-50"
+              />
+              <Mail size={15} className={clsx('shrink-0', hasEmail ? 'text-teal-600' : 'text-slate-300')} />
+              שלח הודעת אישור אוטומטית למטופל (Email)
+              {!hasEmail && <span className="text-[11px] text-slate-400">· אין אימייל במערכת</span>}
+            </label>
+          </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-slate-500">
               {selected
@@ -309,7 +338,8 @@ export default function ScheduleDialog({ request, onConfirm, onClose }) {
           </div>
         </div>
       </Card>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

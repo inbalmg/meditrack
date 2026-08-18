@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { ChevronRight, ChevronDown, Sparkles, Phone, Pill, History, FileText, Stethoscope, CalendarClock, Check, Lock } from 'lucide-react'
+import { ChevronRight, ChevronDown, Sparkles, Phone, Mail, Pill, History, FileText, Stethoscope, CalendarClock, Check, Lock } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Badge, Avatar, Button, Empty } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
@@ -90,6 +90,7 @@ export default function VisitCard() {
             <h1 className="text-xl font-bold text-slate-800">{patient.name}</h1>
             <p className="text-slate-500 text-sm mt-0.5">
               {patient.age} · {genderLabel(patient.gender)} · <Phone size={12} className="inline" /> {patient.phone}
+              {patient.email && <> · <Mail size={12} className="inline" /> <span dir="ltr">{patient.email}</span></>}
             </p>
           </div>
           <div className="text-left">

@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { addHours } from 'date-fns'
+import { addHours, subDays } from 'date-fns'
 import { supabase } from '../lib/supabase.js'
 import { useSession } from '../session.jsx'
 import { classifyRequest } from '../lib/aiClassifier.js'
 import { ageFromBirthYear } from '../lib/format.js'
-import { normalizeName, validateStaffName, isValidStaffRole, validateTherapistName, validateSpecialty, phoneValid, normalizePhone, birthYearValid, isValidGender } from '../lib/validation.js'
+import { normalizeName, validateStaffName, isValidStaffRole, validateTherapistName, validateSpecialty, phoneValid, normalizePhone, birthYearValid, isValidGender, normalizeEmail, emailValid } from '../lib/validation.js'
 import { AUTO_TASK_DUE_HOURS } from './seed.js'
 
 // DataProvider — the SAME useData() contract as before, now backed by Supabase.
@@ -26,8 +26,15 @@ function persist(promiseLike, label) {
 }
 
 const DEFAULT_SETTINGS = {
-  remindersEnabled: true, reminderHours: 24, autoNoShow: true, noShowMinutes: 15, followUpOnNoShow: true,
+  remindersEnabled: true, autoNoShow: true, noShowMinutes: 15, followUpOnNoShow: true,
 }
+
+// The task board mirror holds every open/in-progress task, but only the last
+// N days of COMPLETED ones — older completed work lives behind the on-demand,
+// server-paginated Task Archive drawer so the board query stays bounded.
+export const MAIN_BOARD_DONE_DAYS = 15
+// Archive drawer: server-side page size (SQL limit) for the "Load More" pager.
+export const ARCHIVE_PAGE_SIZE = 20
 
 // --- DB row → app-shape mappers (reproduce the exact objects components expect) ---
 const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, color: r.color, initials: r.initials, active: r.active !== false })
@@ -35,7 +42,7 @@ const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, c
 // only birth_year (NOT NULL). See migration 18 (the redundant `age` column was dropped).
 const mapPatient = (r) => {
   const birthYear = r.birth_year ?? null
-  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender }
+  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender, email: r.email ?? null }
 }
 const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
 const mapAppt = (r) => ({
@@ -63,6 +70,10 @@ export function DataProvider({ children }) {
   const [staff, setStaff] = useState([])
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [currentPatientId, setCurrentPatient] = useState(null)
+  // Set when the secretary/manager approves a phone/AI request — drives the shared
+  // booking-success modal (same confirmation a patient gets on self-booking). Held at
+  // store level because approving removes the request, unmounting the row that triggered it.
+  const [bookingConfirmation, setBookingConfirmation] = useState(null)
   const [ready, setReady] = useState(false)
 
   // A brand-new patient creates their own patients row on first self-booking; the
@@ -90,6 +101,10 @@ export function DataProvider({ children }) {
     let active = true
     ;(async () => {
       setReady(false)
+      // Board window: every non-completed task + only completed tasks finished within
+      // the last MAIN_BOARD_DONE_DAYS. The older completed backlog is fetched lazily by
+      // the archive drawer (fetchArchivedTasks) — it never enters this mirror.
+      const doneCutoff = subDays(new Date(), MAIN_BOARD_DONE_DAYS).toISOString()
       const [th, tr, tp, pt, ap, rq, tk, st, cl] = await Promise.all([
         supabase.from('therapists').select('*'),
         supabase.from('treatments').select('*').eq('active', true),
@@ -97,7 +112,7 @@ export function DataProvider({ children }) {
         supabase.from('patients').select('*'),
         supabase.from('appointments').select('*'),
         supabase.from('requests').select('*'),
-        supabase.from('tasks').select('*'),
+        supabase.from('tasks').select('*').or(`status.neq.הושלם,completed_at.gte.${doneCutoff}`),
         supabase.from('staff').select('*'),
         supabase.from('clinics').select('settings').maybeSingle(),
       ])
@@ -152,6 +167,15 @@ export function DataProvider({ children }) {
   const therapistById = useMemo(() => Object.fromEntries(therapists.map((t) => [t.id, t])), [therapists])
   const activeTherapists = useMemo(() => therapists.filter((t) => t.active !== false), [therapists])
   const treatmentById = useMemo(() => Object.fromEntries(treatments.map((t) => [t.id, t])), [treatments])
+  // Bookable providers for the PATIENT self-booking flow: active, with a specialty
+  // AND at least one treatment they provide. A therapist missing either can't be
+  // booked end-to-end (no treatment ⇒ dead-end at the treatment step), so they're
+  // hidden from the patient picker. Made bookable in Settings by giving them a
+  // specialty + assigning a treatment. Clinic-side pickers keep using activeTherapists.
+  const bookableTherapists = useMemo(() => {
+    const providerIds = new Set(treatments.flatMap((t) => t.therapistIds))
+    return activeTherapists.filter((t) => (t.specialty || '').trim() !== '' && providerIds.has(t.id))
+  }, [activeTherapists, treatments])
 
   // People a task can be assigned to: treatment providers + office staff
   // (secretary/manager). Staff rows carry no avatar, so derive initials + a neutral
@@ -206,6 +230,12 @@ export function DataProvider({ children }) {
 
   function updateTherapist(id, patch) {
     setTherapists((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+    // Enforce required fields at the write layer: keep the optimistic edit visible,
+    // but don't persist an invalid name/specialty to the DB (the row reverts to the
+    // last saved value on reload). Patches without those keys (color/active) pass through.
+    if (patch.name !== undefined &&
+        validateTherapistName(patch.name, therapists.filter((t) => t.id !== id).map((t) => t.name))) return
+    if (patch.specialty !== undefined && validateSpecialty(patch.specialty)) return
     persist(supabase.from('therapists').update(patch).eq('id', id), 'updateTherapist')
   }
 
@@ -299,18 +329,20 @@ export function DataProvider({ children }) {
   }
 
   // --- Patients ---
-  function addPatient({ name, phone, birthYear = null, gender = null }) {
+  function addPatient({ name, phone, birthYear = null, gender = null, email = null }) {
     // Required fields (mirrors the DB: phone/birth_year/gender are NOT NULL, gender is
     // CHECK-constrained). Backstop under the intake forms — reject invalid input.
     const cleanName = (name || '').trim()
     // Persist the normalized phone (05XXXXXXXX) so every row shares one format.
     const cleanPhone = normalizePhone(phone)
-    if (!cleanName || !phoneValid(cleanPhone) || !birthYearValid(birthYear) || !isValidGender(gender)) {
-      throw new Error('addPatient: invalid patient fields (name/phone/birthYear/gender)')
+    // email is OPTIONAL (secondary channel); reject only a present-but-malformed value.
+    const cleanEmail = normalizeEmail(email)
+    if (!cleanName || !phoneValid(cleanPhone) || !birthYearValid(birthYear) || !isValidGender(gender) || !emailValid(cleanEmail)) {
+      throw new Error('addPatient: invalid patient fields (name/phone/birthYear/gender/email)')
     }
     // age is derived for the UI only; the DB stores birth_year (the stable fact).
     const age = ageFromBirthYear(birthYear)
-    const patient = { id: uuid(), name: cleanName, phone: cleanPhone, birthYear, age, gender }
+    const patient = { id: uuid(), name: cleanName, phone: cleanPhone, birthYear, age, gender, email: cleanEmail || null }
     setPatients((prev) => [...prev, patient])
     // A patient self-registering links the row to their auth user (profile_id = auth.uid())
     // so RLS (patients_insert_self + app.patient_id()) accepts it and resolves their id for
@@ -319,15 +351,18 @@ export function DataProvider({ children }) {
     const profileId = selfRegister ? (userId ?? null) : null
     // Resolve the builder exactly once, then reuse the promise (persist + the ordering gate).
     const write = Promise.resolve(
-      supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name: cleanName, phone: cleanPhone, birth_year: birthYear, gender, profile_id: profileId }),
+      supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name: cleanName, phone: cleanPhone, birth_year: birthYear, gender, email: cleanEmail || null, profile_id: profileId }),
     )
     persist(write, 'addPatient')
     if (selfRegister) pendingPatientWrite.current = write.catch(() => {})
     return patient
   }
   function updatePatient(id, patch) {
-    // Keep stored phones in the canonical 05XXXXXXXX shape whatever the caller passed.
-    const clean = 'phone' in patch ? { ...patch, phone: normalizePhone(patch.phone) } : patch
+    // Keep stored contact fields in their canonical shape whatever the caller passed:
+    // phone → 05XXXXXXXX; email → trimmed + lowercased (or null when cleared).
+    let clean = patch
+    if ('phone' in clean) clean = { ...clean, phone: normalizePhone(clean.phone) }
+    if ('email' in clean) clean = { ...clean, email: normalizeEmail(clean.email) || null }
     setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...clean } : p)))
     persist(supabase.from('patients').update(clean).eq('id', id), 'updatePatient')
   }
@@ -406,10 +441,34 @@ export function DataProvider({ children }) {
       visit_type: appt.visitType, status: 'קבוע', reason: req.description, source: req.source,
     }), 'approveRequest.appt')
     persist(supabase.from('requests').update({ status: 'אושר', appointment_id: apptId }).eq('id', requestId), 'approveRequest.req')
+    // Confirmation channels (secretary's choice in the ScheduleDialog). Phone = the
+    // WhatsApp/SMS reminder; email = the same appointment confirmation over email —
+    // both go through the send-reminder Edge Function (secrets stay server-side).
+    const patient = patientById[req.patientId]
+    const therapist = therapistById[therapistId]
+    const sentEmail = !!(slot?.notifyEmail && patient?.email)
     if (slot?.notify) {
       supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId } }).catch(() => {})
     }
+    if (sentEmail) {
+      supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId, channel: 'email' } }).catch(() => {})
+    }
+    // Surface the same success confirmation a patient sees on self-booking.
+    setBookingConfirmation({
+      appointment: appt,
+      patientName: patient?.name ?? '',
+      phone: patient?.phone ?? null,
+      email: patient?.email ?? null,
+      therapistName: therapist?.name ?? '',
+      specialty: therapist?.specialty ?? '',
+      notifiedSms: !!slot?.notify,
+      notifiedEmail: sentEmail,
+    })
     return appt
+  }
+
+  function clearBookingConfirmation() {
+    setBookingConfirmation(null)
   }
 
   function rejectRequest(requestId) {
@@ -521,14 +580,70 @@ export function DataProvider({ children }) {
     persist(supabase.from('tasks').delete().eq('id', id), 'deleteTask')
   }
 
+  // --- Task Archive (on-demand, server-paginated) ---
+  // Fetch a single page of COMPLETED tasks straight from the DB (never touches the
+  // board mirror). Filters — free-text search, completion date range, assignee — and
+  // the newest-first order are all applied server-side so the SQL LIMIT/RANGE paging
+  // is authoritative. Returns { tasks, hasMore } for the "Load More" pager.
+  // Only real task columns are sortable server-side (paging must stay authoritative);
+  // patient / assignee are derived names and aren't sort keys.
+  const ARCHIVE_SORT_COLUMNS = { completed_at: 'completed_at', title: 'title' }
+  async function fetchArchivedTasks({ page = 0, pageSize = ARCHIVE_PAGE_SIZE, search = '', from = null, to = null, assigneeId = null, sortKey = 'completed_at', sortAsc = false } = {}) {
+    const offset = page * pageSize
+    let q = supabase
+      .from('tasks')
+      .select('*', { count: 'exact' })
+      .eq('status', 'הושלם')
+    if (assigneeId) q = q.eq('assignee_id', assigneeId)
+    if (from) q = q.gte('completed_at', from.toISOString())
+    if (to) q = q.lte('completed_at', to.toISOString())
+    const term = search.trim()
+    if (term) {
+      // Match the task title, its source "tag" (אוטומציה/ידני), or — resolving names
+      // from the in-memory roster — the patient it belongs to. patient_id.in.(…) keeps
+      // the name search server-side so paging stays correct.
+      const like = `*${term}*`
+      const patientIds = patients.filter((p) => p.name?.includes(term)).map((p) => p.id)
+      const ors = [`title.ilike.${like}`, `source.ilike.${like}`, `note.ilike.${like}`]
+      if (patientIds.length) ors.push(`patient_id.in.(${patientIds.join(',')})`)
+      q = q.or(ors.join(','))
+    }
+    const orderBy = ARCHIVE_SORT_COLUMNS[sortKey] ?? 'completed_at'
+    const { data, count, error } = await q
+      .order(orderBy, { ascending: sortAsc, nullsFirst: false })
+      .range(offset, offset + pageSize - 1)
+    if (error) {
+      console.error('[fetchArchivedTasks]', error.message)
+      return { tasks: [], hasMore: false }
+    }
+    const mapped = (data ?? []).map(mapTask)
+    const total = count ?? offset + mapped.length
+    return { tasks: mapped, hasMore: offset + mapped.length < total }
+  }
+
+  // Restore an archived (completed) task back into active work. Optimistically flips it
+  // to "בטיפול" and clears completed_at; merges it into the board mirror (it may have
+  // aged out of the 15-day window, so add it if missing). Returns the restored task so
+  // the archive drawer can drop it from its list immediately.
+  function restoreTask(task) {
+    const restored = { ...task, status: 'בטיפול', completedAt: undefined }
+    setTasks((prev) => (prev.some((t) => t.id === task.id)
+      ? prev.map((t) => (t.id === task.id ? restored : t))
+      : [restored, ...prev]))
+    persist(supabase.from('tasks').update({ status: 'בטיפול', completed_at: null }).eq('id', task.id), 'restoreTask')
+    return restored
+  }
+
   const value = {
-    therapists, activeTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
+    therapists, activeTherapists, bookableTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
     setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor, classifyAsync,
     assignees, assigneeById,
     updateSettings, addTherapist, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient,
     bookAppointment, cancelAppointment, submitRequest, approveRequest, rejectRequest,
+    bookingConfirmation, clearBookingConfirmation,
     setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
+    fetchArchivedTasks, restoreTask,
   }
 
   const gated = status === 'loading' || (status === 'authed' && !ready)

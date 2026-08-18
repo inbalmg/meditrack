@@ -41,6 +41,9 @@ Replace outdated information instead of appending.
   `gender` הוא ערך קנוני `CHECK (gender IN ('male','female','other'))` — נאסף בטופסי הקליטה
   (`NewRequest`, `PhoneRequestDialog`) ומוצג בעברית דרך `genderLabel` (`lib/format.js`). **גיל נגזר
   ואינו נשמר** — `age = currentYear − birth_year` (`ageFromBirthYear`); עמודת `age` הוסרה (migration 18).
+- **`email` (אופציונלי):** ערוץ **התראות משני** — הטלפון נשאר הערוץ המחייב. עמודה nullable עם
+  `CHECK` פורמט שחל רק כשקיים ערך (migration 20); ולידציה בקליינט דרך `emailValid`/`normalizeEmail`
+  (`lib/validation.js`). נאסף (רשות) בטופסי הקליטה ומוצג בתיק המטופל (`VisitCard`) כשקיים.
 - **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
   עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
 - כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).

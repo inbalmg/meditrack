@@ -12,9 +12,10 @@ import {
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
+import BookingConfirmationModal from '../components/BookingConfirmationModal.jsx'
 import { clsx } from '../components/clsx.js'
 import { CrossMark } from '../components/Logo.jsx'
-import logoUrl from '../assets/meditrack-logo.png'
+import logoUrl from '../assets/meditrack-logo.svg'
 
 export default function ClinicLayout() {
   const { role, logout } = useSession()
@@ -107,6 +108,9 @@ export default function ClinicLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Booking-success confirmation (shown after approving a phone/AI request). */}
+      <BookingConfirmationModal />
     </div>
   )
 }

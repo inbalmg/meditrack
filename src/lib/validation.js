@@ -57,6 +57,7 @@ export function isValidStaffRole(r) {
 // --- Therapists (providers) ---
 export const THERAPIST_NAME_MIN = 2
 export const THERAPIST_NAME_MAX = 50
+export const SPECIALTY_MIN = 2
 export const SPECIALTY_MAX = 50
 
 // name: required, 2–50 (on the trimmed/collapsed value), and unique among existing
@@ -70,13 +71,31 @@ export function validateTherapistName(s, existing = []) {
   return null
 }
 
-// specialty: optional; when present, up to 50 chars (on the trimmed value).
+// specialty: REQUIRED — 2–50 chars (on the trimmed value). A therapist's specialty
+// is shown in the patient booking flow and is part of what makes them bookable, so
+// it can't be left blank (see bookableTherapists in store.jsx).
 export function validateSpecialty(s) {
-  if ((s || '').trim().length > SPECIALTY_MAX) return `ההתמחות ארוכה מדי (עד ${SPECIALTY_MAX} תווים)`
+  const n = (s || '').trim()
+  if (n.length < SPECIALTY_MIN) return `יש להזין התמחות (לפחות ${SPECIALTY_MIN} תווים)`
+  if (n.length > SPECIALTY_MAX) return `ההתמחות ארוכה מדי (עד ${SPECIALTY_MAX} תווים)`
   return null
 }
 
 // --- Patients ---
+// Email — OPTIONAL secondary notification channel (phone stays the mandatory one).
+// normalizeEmail folds to a single stored shape (trim + lowercase); persist the
+// normalized value. emailValid returns true for BLANK (the field is optional) or a
+// well-formed address — mirrors the DB CHECK patients_email_check (migration 20):
+// null-or-format. So an empty email never blocks a form, but a malformed one does.
+export function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase()
+}
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+export function emailValid(email) {
+  const e = normalizeEmail(email)
+  return e === '' || EMAIL_RE.test(e)
+}
+
 // Selectable/valid gender values (intake forms + validation). Kept to male/female
 // for now. NOTE: some legacy rows may still hold 'other' — genderLabel still renders
 // those for display; they just can't be chosen for a new/edited patient.
