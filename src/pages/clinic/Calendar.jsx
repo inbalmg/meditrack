@@ -11,6 +11,7 @@ import {
   weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
 } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
+import { isUnresolvedPast } from '../../lib/appointments.js'
 import { VISIT_TYPES, VISIT_TYPE_SHORT } from '../../data/seed.js'
 
 const START_HOUR = 9
@@ -44,7 +45,7 @@ function layoutDay(appts) {
 }
 
 export default function Calendar() {
-  const { appointments, patientById, therapists, therapistById } = useData()
+  const { appointments, patientById, activeTherapists, therapistById } = useData()
   const [therapistFilter, setTherapistFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [selectedId, setSelectedId] = useState(null)
@@ -118,7 +119,7 @@ export default function Calendar() {
           </div>
           <Filter size={16} className="text-slate-400" />
           <Select value={therapistFilter} onChange={setTherapistFilter}
-            options={[{ value: 'all', label: 'כל המטפלים' }, ...therapists.map((t) => ({ value: t.id, label: t.name }))]} />
+            options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
           <Select value={typeFilter} onChange={setTypeFilter}
             options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
         </div>
@@ -126,7 +127,7 @@ export default function Calendar() {
 
       {/* Therapist legend */}
       <div className="flex items-center gap-4 flex-wrap text-sm">
-        {therapists.map((t) => (
+        {activeTherapists.map((t) => (
           <span key={t.id} className="flex items-center gap-1.5 text-slate-600">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />
             {t.name} <span className="text-slate-400">· {t.specialty}</span>
@@ -189,7 +190,7 @@ export default function Calendar() {
                           onClick={() => setSelectedId(appt.id)}
                           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelectedId(appt.id)}
                           className={clsx('absolute rounded-lg px-1.5 py-0.5 text-white overflow-hidden shadow-sm ring-1 cursor-pointer hover:brightness-110 transition',
-                            STATUS_RING[appt.status])}
+                            isUnresolvedPast(appt) ? 'ring-2 ring-amber-400' : STATUS_RING[appt.status])}
                           style={{
                             top: startMin * PX_PER_MIN + 1,
                             height: appt.durationMin * PX_PER_MIN - 2,

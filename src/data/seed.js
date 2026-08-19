@@ -61,13 +61,16 @@ export function treatmentsForTherapist(therapistId) {
   return treatments.filter((t) => t.therapistIds.includes(therapistId))
 }
 
+// Age is derived from birthYear (see lib/format.js → ageFromBirthYear), not stored.
+// email is OPTIONAL (secondary notification channel) — some patients have none on
+// purpose (e.g. older patients), so the demo reflects the nullable field.
 export const patients = [
-  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', age: 34, gender: 'נ' },
-  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', age: 58, gender: 'ז' },
-  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', age: 29, gender: 'נ' },
-  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', age: 41, gender: 'ז' },
-  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', age: 45, gender: 'נ' },
-  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', age: 67, gender: 'נ' },
+  { id: 'p1', name: 'רותם ברק', phone: '050-1234567', birthYear: 1992, gender: 'female', email: 'rotem.barak@gmail.com' },
+  { id: 'p2', name: 'אבי מזרחי', phone: '052-9876543', birthYear: 1968, gender: 'male', email: null },
+  { id: 'p3', name: 'שירה גולן', phone: '054-5551212', birthYear: 1997, gender: 'female', email: 'shira.golan@gmail.com' },
+  { id: 'p4', name: 'נועם פרידמן', phone: '053-4448899', birthYear: 1985, gender: 'male', email: 'noam.f@outlook.com' },
+  { id: 'p5', name: 'ליאור שמש', phone: '058-3332211', birthYear: 1981, gender: 'female', email: null },
+  { id: 'p6', name: 'תמר אוחיון', phone: '050-7778866', birthYear: 1959, gender: 'female', email: null },
 ]
 
 // The signed-in patient for the mobile portal demo.
@@ -169,6 +172,10 @@ export const seedAppointments = [
   appt('a9', 'p6', 'tr1', 3, 9, 30, 'קבוע', 'הערכת כאב גב'),
   appt('a10', 'p1', 'tr5', 4, 13, 0, 'קבוע', 'עיסוי רפואי לגב'),
   appt('a11', 'p4', 'tr2', -3, 10, 0, 'לא הגיע', 'טיפול המשך'),
+  // תורים מהעבר שנשארו "קבוע" — הדגמה של תורים שלא סומנו (הגיע/לא הגיע) שממתינים
+  // לטיפול המזכירה בלוח הבקרה, בלי תלות בשעה הנוכחית.
+  appt('a16', 'p5', 'tr1', -1, 10, 0, 'קבוע', 'הערכת כאב גב — לא סומן'),
+  appt('a17', 'p6', 'tr3', -2, 12, 30, 'קבוע', 'סדרת דיקור — לא סומן'),
   // תורים עתידיים (עד ~4 חודשים קדימה) — מדגימים את אופק 6 החודשים בניווט היומן.
   appt('a12', 'p1', 'tr1', 14, 10, 0, 'קבוע', 'הערכת פיזיותרפיה — מעקב'),
   appt('a13', 'p3', 'tr3', 31, 11, 30, 'קבוע', 'סדרת דיקור — המשך'),
@@ -222,6 +229,12 @@ export const seedTasks = [
   // משימה ידנית שכבר עברה את זמנה — משאירה את מצב ה"באיחור" האדום מודגם במערכת.
   { id: 'k3', title: 'לחזור עם המלצת תרגילים — אבי מזרחי', patientId: 'p2', assigneeId: 't1', createdAt: addHours(today, -4), due: addHours(today, -3), status: 'בטיפול', source: 'ידני', note: 'להכין ולשלוח דף תרגילים לבית.' },
   { id: 'k4', title: 'תזכורת המשך סדרה — תמר אוחיון', patientId: 'p6', assigneeId: 't2', createdAt: addHours(today, -5), due: addHours(today, AUTO_TASK_DUE_HOURS + 4), status: 'פתוח', source: 'אוטומציה', note: 'לוודא קביעת הטיפול הבא בסדרת הדיקור.' },
+  // משימות שהושלמו — נושאות `completedAt` (רגע הסימון כ"הושלם"). לוח המשימות מסנן את
+  // עמודת "הושלם" לפי הטווח הזה (היום/השבוע/הכל) כדי שלא תיערם. פרוסות על פני הטווחים
+  // כדי להדגים את הסינון: אחת מהיום, אחת מהשבוע, אחת ישנה (מוצגת רק ב"הכל").
+  { id: 'k5', title: 'שליחת סיכום טיפול — דנה לוי', patientId: 'p1', assigneeId: 't1', createdAt: addHours(today, -6), due: addHours(today, -4), status: 'הושלם', source: 'ידני', completedAt: addHours(today, -3), note: 'נשלח סיכום ותרגילים במייל.' },
+  { id: 'k6', title: 'פולו-אפ אי-הגעה — יוסי כהן', patientId: 'p5', assigneeId: 't2', createdAt: addHours(today, -80), due: addHours(today, -76), status: 'הושלם', source: 'אוטומציה', completedAt: addHours(today, -72), note: 'תואם תור חלופי בטלפון.' },
+  { id: 'k7', title: 'עדכון פרטי קשר — אבי מזרחי', patientId: 'p2', assigneeId: 't3', createdAt: addHours(today, -250), due: addHours(today, -246), status: 'הושלם', source: 'ידני', completedAt: addHours(today, -240), note: 'עודכן מספר טלפון חדש.' },
 ]
 
 // Helper: format for display

@@ -29,14 +29,31 @@ Replace outdated information instead of appending.
 - הקליניקה מגדירה **טיפולים** (`treatments`): שם + משך + אילו מטפלים נותנים אותם.
 - **מסלול ראשי — הזמנה עצמית:** המטופל בוחר מטפל → טיפול → משבצת פנויה, והתור נקבע
   ישירות (`bookAppointment`, סטטוס "קבוע", **ללא אישור מזכירה**). אורך המשבצת = משך הטיפול.
-- **מסלול משני — "לא בטוח/ה":** תיאור חופשי → `classifyRequest` מציע טיפול+מטפל ומרים
-  **דגל דחיפות** (safety-net). בקשה כזו נכנסת ל-`submitRequest` וממתינה לאישור אנושי.
-- **פרטי קשר / טלפון לתזכורות:** שדה טלפון נאסף **בתוך זרימת בקשת התור** (`NewRequest`, שלב
-  "פרטים ליצירת קשר"), והוא היעד לתזכורות (וואטסאפ/SMS). מטופל **קיים** — הטלפון ממולא-מראש
-  מהרשומה וניתן לעריכה; מטופל **חדש** — שם+טלפון ריקים וחובה. בסיום, `commitContact()` יוצר
-  רשומת מטופל (`addPatient`) לחדש או מעדכן טלפון לקיים (`updatePatient`), ורק אז `bookAppointment`/
-  `submitRequest`. המטופל המחובר (`currentPatientId`) הוא **state** ב-store — נקבע בכניסה: מזהה
-  מטופל קיים או `null` למטופל חדש (ראו `Login.jsx`).
+- **מסלול משני — "לא בטוח/ה איזה טיפול מתאים?":** **פנייה אנושית ללא AI.** המטופל בוחר
+  **נושא הפנייה** (שירות פעיל של הקליניקה, או "אדמיניסטרציה" / "אחר") ומוסיף פירוט חופשי (רשות),
+  והפנייה נשלחת ישירות למזכירה (`submitInquiry`, נשמרת כ-`requests` עם `kind:'inquiry'`, ללא `ai`).
+  הפנייה נכנסת לתור המזכירה בסטטוס `ממתין` עם באדג׳ **"פנייה מהפורטל"**; המזכירה קוראת, מוסיפה
+  **הערה פנימית** (`staff_note`, לא נראית למטופל) ו**פותרת אותה בשני מסלולים סופיים, סותרים זה את זה**
+  (שניהם מסירים אותה מהלוח): **סימון כטופל** (`updateInquiry`→`סגור`, ללא יצירת משימה) **או**
+  **הפיכה למשימה** (`convertInquiryToTask` — יוצרת משימה `בטיפול` ומסמנת את הבקשה `הומר למשימה`).
+  אין ניתוב/שיבוץ אוטומטי.
+- **קליטת מטופל חדש = שלב אונבורדינג לפני ההזמנה:** מטופל **חדש** (ללא רשומה, `currentPatientId` → `null`)
+  רואה תחילה **טופס אונבורדינג** (`NewRequest` → `Onboarding`) האוסף שם + טלפון + שנת לידה + מין (חובה,
+  מולידציה), צ׳קבוקס **חובה** למדיניות פרטיות/תנאי שימוש, וצ׳קבוקס **רשות** לקבלת התראות (SMS/אימייל).
+  בשליחה `addPatient` יוצר את רשומת ה-`patients` (כולל `notify_opt_in`) ו-`setCurrentPatient` הופך אותו
+  למחובר — רק אז נפתח מסך ההזמנה. **מטופל קיים** מדלג על האונבורדינג לגמרי. מסך ההזמנה מציג **ברכה מותאמת
+  אישית** למעלה ("שלום {שם} 👋") ובורר מטפל→טיפול→מועד; שדות **טלפון + אימייל** מוצגים בו **ממולאים-מראש
+  מהרשומה וניתנים לעריכה** — עריכה מותמדת ל-`patients` באישור (`persistContactEdits` → `updatePatient`,
+  רק אם השתנו). **הסכמות הקליטה (פרטיות + אישור התראות) נאספות אך ורק באונבורדינג ואינן מופיעות במסך
+  ההזמנה.** הטלפון הוא היעד לתזכורות (וואטסאפ/SMS). המטופל המחובר (`currentPatientId`) הוא **state**
+  ב-store — נקבע בכניסה (ראו `Login.jsx`).
+- **שדות חובה של מטופל (`patients`, נאכף ב-DB):** `phone` / `birth_year` / `gender` הם NOT NULL;
+  `gender` הוא ערך קנוני `CHECK (gender IN ('male','female','other'))` — נאסף בטופסי הקליטה
+  (`NewRequest`, `PhoneRequestDialog`) ומוצג בעברית דרך `genderLabel` (`lib/format.js`). **גיל נגזר
+  ואינו נשמר** — `age = currentYear − birth_year` (`ageFromBirthYear`); עמודת `age` הוסרה (migration 18).
+- **`email` (אופציונלי):** ערוץ **התראות משני** — הטלפון נשאר הערוץ המחייב. עמודה nullable עם
+  `CHECK` פורמט שחל רק כשקיים ערך (migration 20); ולידציה בקליינט דרך `emailValid`/`normalizeEmail`
+  (`lib/validation.js`). נאסף (רשות) בטופסי הקליטה ומוצג בתיק המטופל (`VisitCard`) כשקיים.
 - **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
   עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
 - כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).
@@ -87,7 +104,10 @@ src/
   pages/
     Login.jsx              שתי כניסות: צוות (3 תפקידים) · מטופל (רשום 'p1' / חדש null → setCurrentPatient)
     clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
-    doctor/  DoctorDay · DoctorCalendar · VisitCard   (צפייה בלבד)
+    doctor/  DoctorDay · DoctorCalendar · VisitCard (תיק מטופל: סיבת הפנייה + AI, **סיכום ביקור** לעריכה
+             (clinical_note לביקור הנוכחי) — **פעיל רק כשסטטוס הביקור "הגיע"**, נעול לביקור עתידי/אחר,
+             **היסטוריית ביקורים** חוצת-מטפלים — כל הסקשן מתקפל בכפתור chevron
+             (מקופל כברירת מחדל), ובתוכו אקורדיון פר-ביקור עם סיכום קליני · תרופות)
     patient/ NewRequest (הזמנה עצמית רב-שלבית + "לא בטוח" + פרטי קשר/טלפון) · MyAppointments (ביטול/שינוי)
 ```
 
@@ -97,7 +117,7 @@ src/
 |-------|------|------|
 | מזכירות (`secretary`) | `/clinic` | בקשות (חריגים), יומן, משימות, הגדרות · **ללא דוחות** |
 | מנהל/ת (`manager`) | `/clinic` | הכל + דוחות |
-| מטפל (`therapist`) | `/doctor` | צפייה בלבד · רק היומן/המשימות שלו (`therapistId: t1`) |
+| מטפל (`therapist`) | `/doctor` | יומן בצפייה · לוח המשימות שלו: יצירה/עדכון/**מחיקה** של המשימות שלו בלבד · תיק מטופל: סימון **הגיע/הסתיים** לביקור שלו + כתיבת **סיכום ביקור** (פעיל בסטטוס הגיע/הסתיים) (`therapistId: t1`) |
 | מטופל (`patient`) | `/patient` | הזמנה עצמית + מעקב (רספונסיבי — מובייל ודסקטופ) |
 
 `RequireRole` (`App.jsx`) חוסם גישה חוצת-אזור ומפנה ל-`role.home`. שתי כניסות נפרדות.
@@ -106,12 +126,39 @@ src/
 
 - **הזמנה עצמית:** `bookAppointment({patientId,therapistId,treatmentId,start,reason})` — תור "קבוע" ישיר.
 - **ביטול:** `cancelAppointment(id)` — מפנה את המשבצת.
-- **מסלול AI:** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id)`.
+- **מסלול AI (בקשות הזמנה):** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id, reason)`.
+  דחייה שומרת `rejection_reason` (הערת מזכירה, רשות) שמוצגת למטופל. `requests.updated_at` (טריגר) מזין
+  את **באנר סטטוס הבקשות** ב-`MyAppointments`: בקשות `ממתין`/`נדחה` מוצגות רק אם עודכנו ב-7 הימים האחרונים
+  ולא נדחו ידנית ע"י המטופל (dismiss נשמר ב-localStorage, חל על באנר נדחה).
+- **פניות אנושיות ("לא בטוח/ה"):** `submitInquiry({patientId,subject,description})` יוצר `requests`
+  עם `kind:'inquiry'` (ללא `ai`, סטטוס `ממתין`). המזכירה פותרת בשני מסלולים סותרים:
+  `updateInquiry(id,{status:'סגור',staffNote})` (סגירה ישירה, ללא משימה) **או** `convertInquiryToTask(id)`
+  (יוצרת `tasks` בסטטוס `בטיפול`, אחראי null = "ללא שיוך (צוות המשרד / כללי)", ומקשרת דרך
+  `requests.converted_task_id` תוך עדכון הבקשה ל-`הומר למשימה`). הערה פנימית (`staff_note`) נשמרת
+  **אוטומטית** (`updateRequestNote`, ללא כפתור) ומועברת לגוף המשימה בהמרה. הפניות מופיעות בתור המזכירה
+  (`RequestRow` → `InquiryRow`) כל עוד `ממתין`.
+- **שיקוף השלמת משימה למטופל:** מטופל לא רשאי לקרוא `tasks` (RLS), לכן סטטוס הבקשה הוא הערוץ היחיד שלו.
+  `reflectConvertedTask` (נקרא מ-`setTaskStatus`/`restoreTask`) ממפה את מחזור-החיים של המשימה המקושרת חזרה
+  לבקשה: משימה שהושלמה → `סגור`, משימה פעילה → `הומר למשימה`. פורטל המטופל (`MyAppointments`) מציג לפי
+  סטטוס הבקשה: `הומר למשימה` → **"בטיפול הצוות"** (גלוי ברצף), `סגור` → **"טופל"** (ירוק, נשמר 48ש׳ מאז
+  `updated_at` ואז יורד מהפיד).
 - **ניהול טיפולים (Settings):** `addTreatment` / `updateTreatment` / `removeTreatment`.
-- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `updateTherapist`, `addPatient`, `updatePatient`.
+- **צוות/מטפלים/מטופלים:** `addStaff`/`updateStaff`/`removeStaff`, `addTherapist`/`updateTherapist`, `addPatient`, `updatePatient`.
+  **המטפל (`therapists`) הוא ישות הספק היחידה** — הזמנה, יומן, `treatment_providers` ולוגין המטפל תלויים בו; נוצר דרך `addTherapist` (הגדרות → מטפלים) והופך לניתן-להזמנה כששויך לו טיפול. רשומת `staff` היא **ספר משרד בלבד** (מזכירות/מנהל) ואינה מקושרת ל-`therapists`.
+  **ארכיון מטפל (soft-delete):** מטפל עוזב מסומן `active:false` דרך `updateTherapist` (לא נמחק — `appointments.therapist_id` הוא ON DELETE RESTRICT וההיסטוריה נשמרת). `activeTherapists` (נגזר) מסנן את המוסתרים מהזמנה/יומן/בוררי המטפלים ומטבלת השיוך; `therapistById` נשאר מעל **כל** המטפלים כדי שתורים היסטוריים ימשיכו להיות מוצגים. שחזור = `active:true`. אותו דפוס כמו `treatments.active`.
 - **מטופל מחובר:** `currentPatientId` (state) + `setCurrentPatient(id|null)` — נקבע בכניסת המטופל.
-- **סטטוס/משימות:** `setAppointmentStatus` (אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
-  `setTaskStatus`, `addTask`.
+- **לוחות יומיים (Dashboard/DoctorDay):** תורי **היום שהסתיימו** נשארים גלויים כל היום בעיצוב **מעומעם**
+  (opacity + badge) — רקורד ולא "לטיפול"; אינם נספרים ב"נותרו להיום". (תורי-עבר לא-סומנו עדיין הולכים לתור הסקירה.)
+- **סטטוס/משימות:** `setAppointmentStatus` (role-aware: מטפל → RPC `set_appointment_status`, צוות → UPDATE ישיר;
+  אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
+  `bulkMarkNoShow(ids)` (סימון מרוכז של תורי-עבר שלא טופלו כ"לא הגיע", כל אחד מוליד משימת פולו-אפ),
+  `saveClinicalNote(apptId, note)` (סיכום ביקור → `set_clinical_note` RPC), `setTaskStatus`, `addTask`, `updateTask`, `deleteTask`.
+- **תורים שלא טופלו (unresolved past):** תור "קבוע" שהמשבצת שלו הסתיימה ולא סומן הגיע/לא-הגיע = מצב
+  לא-פתור שמעוות דוחות. הזיהוי הוא **state נגזר** (`lib/appointments.js` → `isUnresolvedPast`/`selectUnresolved`),
+  ללא מוטציה שקטה; הפתרון אנושי. **UX היברידי:** Dashboard מציג רק **KPI קומפקטי** עם המונה שמנווט
+  ל-`/clinic/tasks` (`state.focus:'unresolved'`); **תור הסקירה המלא** — `UnresolvedAppointments.jsx`,
+  **אקורדיון רך מתקפל** (מקופל כברירת מחדל; ניווט מה-KPI פותח אותו) עם שורות `AppointmentActions` + סימון-מרוכז —
+  חי בלוח המשימות. Reports מציג הערת "נתונים חלקיים" כל עוד קיימים כאלה.
 - **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
   — משפיעות בפועל ברחבי האפליקציה.
 
@@ -121,15 +168,21 @@ src/
   ומחזיר `{urgency, urgencyScore, urgentFlag, treatmentId, visitType, routedTo, tags, rationale}`.
   עקרון: **בחירת המטופל מנצחת** — hint של מטפל/טיפול גובר; אחרת מיפוי מילות-מפתח (`TREATMENT_RULES`),
   ברירת מחדל `tr1` (פיזיו הערכה). דחיפות = `URGENT_TERMS` → `urgentFlag` → הפניה לאדם.
-- **החלפה ל-LLM אמיתי:** להפוך את `classifyRequest` ל-async ולקרוא ל-API (Claude) עם אותו
-  input/output schema — ה-UI לא משתנה.
+- **מנוע ה-LLM האמיתי (בשרת):** Edge Function `classify-request` מריצה את הסיווג עם **Gemini Flash**
+  (`GEMINI_API_KEY`, מודל דרך `GEMINI_MODEL` בברירת מחדל `gemini-3.1-flash-lite`, פלט JSON מובנה) — עם אותו
+  input/output schema. הפרונטאנד קורא דרך `classifyAsync` (`store.jsx`), ו-`classifyRequest` המקומי משמש
+  כ-Fallback (וגם ה-Edge Function נופלת ל-classifier דטרמיניסטי אם ה-LLM נכשל/חסר מפתח). ה-UI לא משתנה.
 - **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
 
 ## מודל אבטחה — מצב נוכחי ומתוכנן
 
-**היום (דמו):** אין אימות אמיתי. `Login.jsx` — המשתמש בוחר תפקיד/מטופל ידנית; `role` (`session.jsx`)
-ו-`currentPatientId` (`store.jsx`) הם state בזיכרון, מתאפסים ברענון. `RequireRole` (`App.jsx`) חוסם גישה
-חוצת-אזור. `src/lib/supabase.js` = **stub בלבד** (client מ-env vars, לא מחובר ל-Auth/DB).
+**היום — מחובר ל-Supabase (Auth + DB + RLS):** `Login.jsx` = כניסת Supabase Auth אמיתית
+(אימייל+סיסמה למשתמשי הדגמה; מטופל = OTP לטלפון מתוכנן). `session.jsx` גוזר את `role` מ-`app_metadata.role`
+שב-JWT (ל-מטפל נגזר גם `role.therapistId` משורת המטפל), ו-`currentPatientId` מגיע מהסשן המאומת.
+`store.jsx` = **מירור מקומי מעל Supabase** — טוען את כל הישויות בכניסה (RLS-scoped), וכל פעולה מעדכנת
+state אופטימי (UUID מהלקוח) ומתמידה ל-DB ברקע; אותו חוזה `useData()` סינכרוני, הרכיבים לא השתנו.
+**RLS הוא שכבת האכיפה** (מדיניות לפי `clinic_id`+`role`); `RequireRole` (`App.jsx`) = UX בלבד. פונקציות
+Edge: `classify-request` (סיווג) ו-`send-reminder` (וואטסאפ/SMS) מחזיקות סודות בשרת. הסשן נשמר בין רענונים.
 
 **מתוכנן ל-Production (עם Supabase) — לעקוב אחריו כשמחברים DB:**
 - **Authentication (Supabase Auth):** מטופל = OTP לטלפון (הטלפון כבר ערוץ התזכורות); צוות
@@ -138,7 +191,20 @@ src/
 - **RBAC:** תפקיד יחיד per-user ב-App Metadata (לא ניתן לשינוי מהלקוח); 4 התפקידים של `ROLES`; Least Privilege.
 - **Multi-tenant:** כל רשומה נושאת `clinic_id` → בידוד מלא בין קליניקות.
 - **RLS = שכבת האכיפה המרכזית:** מטופל→`patient_id = auth.uid()`; מטפל→`therapist_id = auth.uid()`
-  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד.
+  (שיוך מטפל-מטופל); מזכירה/מנהל→לפי `clinic_id`; דוחות→manager בלבד. **הרשמה עצמית של מטופל:** מטופל
+  חדש (ללא רשומה) יוצר את רשומת ה-`patients` **של עצמו** בהזמנה הראשונה — policy `patients_insert_self`
+  (`role='patient'` + `clinic_id` + `profile_id = auth.uid()`, migration 21) + אינדקס ייחודי חלקי על
+  `profile_id` (רשומה אחת לכל לוגין). `addPatient` מטביע `profile_id = auth.uid()` רק בהרשמה עצמית (רשומות
+  ספר-משרד של המזכירה נשארות `profile_id = null`), וה-store משרשר את insert התור/הבקשה **אחרי** שרשומת
+  המטופל נשמרה (`afterPatientWrite`) כדי ש-`app.patient_id()` יפתור בבדיקת ה-RLS. **היסטוריית ביקורים:** מטפל
+  רשאי לקרוא את **כל** התורים של מטופל שהוא מטפל בו (`app.therapist_treats_patient(patient_id)`, migration 13)
+  — לתיק המטופל חוצה-המטפלים; מסכי היום/היומן שלו עדיין מסננים ל-`therapist_id` שלו ב-UI. התור נושא
+  `clinical_note` (סיכום קליני שמוצג בהיסטוריה). מטפל מקדם את הביקור **שלו** ל-`הגיע`/`הסתיים` דרך RPC
+  `set_appointment_status` (migration 15) וכותב את ה-`clinical_note` דרך RPC `set_clinical_note` (migration 14) —
+  שניהם SECURITY DEFINER, מעדכנים רק את העמודה הרלוונטית ורק כשה-`therapist_id` שלו; ללא הרשאת UPDATE
+  רחבה על appointments (סימון `לא הגיע` נשאר אצל המזכירה בלבד). עריכת הסיכום ב-UI פעילה רק בסטטוס הגיע/הסתיים. **משימות:** מטפל רשאי לקרוא/ליצור/לעדכן/**למחוק**
+  רק את המשימות שלו — משויכות אליו (`assignee_id = app.therapist_id()`) או שיצר (`created_by = auth.uid()`);
+  יצירה מוצמדת אליו כאחראי (migrations 12, 14).
 - **Defense in depth:** הגנת ה-Frontend (Route Guards / הסתרת כפתורים) = UX בלבד; האכיפה המחייבת
   בשרת (JWT + RLS + Edge Functions). מפתחות סוד רק בשרת. עיקרון: *Never trust the client.*
 
@@ -149,7 +215,8 @@ src/
 
 - עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`); טקסטים בקוד בעברית — לשמור.
 - צבעים דרך טוקני Tailwind (`teal-*`, `ink-*`, `canvas`) — לא hex ישיר ב-JSX.
-- **state בזיכרון בלבד** — רענון דף מאפס את הסשן (מחזיר ל-login). ניווט אמיתי דרך קישורי SPA, לא URL.
+- **נתונים מ-Supabase, סשן נשמר** — הסשן המאומת נשמר בין רענונים; `store.jsx` טוען מה-DB בכניסה (RLS-scoped)
+  ומתמיד פעולות ברקע. דורש `.env` עם `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (ראו `.env.example`). ניווט דרך קישורי SPA.
 - כל בעיה שנראית בדפדפן — לתקן בקוד המקור, לא ב-DevTools.
 - **נראות פורטל המטופל (רספונסיבי, `PatientLayout.jsx`):** אותה כתובת, שתי פריסות לפי breakpoint `md`:
   - **מובייל (`<md`):** כותרת כהה למעלה + **טאבים תחתונים** (2 טאבים), תוכן במסך מלא.

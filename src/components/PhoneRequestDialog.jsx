@@ -1,8 +1,11 @@
-import { useState } from 'react'
-import { X, Phone, Sparkles, Clock, UserPlus, UserRound, Check } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { X, Phone, Sparkles, Clock, UserPlus, UserRound, Check, Mail, Search, ChevronDown } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Card, Button, RequiredMark } from './ui.jsx'
 import { clsx } from './clsx.js'
+import { phoneValid, birthYearValid, isValidGender, GENDERS, emailValid } from '../lib/validation.js'
+import { genderLabel } from '../lib/format.js'
 import { VISIT_TYPES } from '../data/seed.js'
 
 const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
@@ -11,18 +14,29 @@ const TIMES = ['בוקר', 'צהריים', 'אחר הצהריים', 'גמיש']
 // callers can be registered inline. On submit the request lands at the top of
 // the pending pipeline with its AI classification — same flow as a portal request.
 export default function PhoneRequestDialog({ onClose }) {
-  const { patients, therapists, submitRequest, addPatient } = useData()
+  const { patients, activeTherapists, submitRequest, addPatient } = useData()
 
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [patientId, setPatientId] = useState('')
   const [newName, setNewName] = useState('')
   const [newPhone, setNewPhone] = useState('')
+  const [newBirthYear, setNewBirthYear] = useState('')
+  const [newGender, setNewGender] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [visitType, setVisitType] = useState('')
   const [therapistId, setTherapistId] = useState('')
   const [description, setDescription] = useState('')
   const [preferredTime, setPreferredTime] = useState('גמיש')
 
-  const patientReady = mode === 'existing' ? !!patientId : !!newName.trim()
+  // New patient: name, a valid phone (the reminder channel), and a valid year of
+  // birth are all required. Existing patient: a selection is enough.
+  const newPhoneValid = phoneValid(newPhone)
+  const newBirthYearValid = birthYearValid(newBirthYear)
+  // Email is optional; only a present-but-malformed value blocks submission.
+  const newEmailInvalid = newEmail.trim().length > 0 && !emailValid(newEmail)
+  const patientReady = mode === 'existing'
+    ? !!patientId
+    : (!!newName.trim() && newPhoneValid && newBirthYearValid && isValidGender(newGender) && !newEmailInvalid)
   const canSubmit = patientReady && description.trim().length > 0
 
   function handleSubmit(e) {
@@ -30,7 +44,7 @@ export default function PhoneRequestDialog({ onClose }) {
     if (!canSubmit) return
     let pid = patientId
     if (mode === 'new') {
-      const p = addPatient({ name: newName.trim(), phone: newPhone.trim() })
+      const p = addPatient({ name: newName.trim(), phone: newPhone.trim(), birthYear: Number(newBirthYear), gender: newGender, email: newEmail })
       pid = p.id
     }
     submitRequest({
@@ -44,9 +58,13 @@ export default function PhoneRequestDialog({ onClose }) {
     onClose()
   }
 
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade" onClick={onClose}>
-      <Card className="w-full max-w-lg p-0 overflow-hidden max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+  // Portal to <body>: the dashboard page wrapper keeps a persistent transform (animate-fade
+  // with fill-mode: both), which would otherwise make it the containing block for this fixed
+  // overlay — pinning inset-0 to the tall page box and pushing the centered card off-screen.
+  // Top-aligned (items-start) with a bounded height so the footer buttons always stay in view.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-center items-start p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <Card className="w-full max-w-lg p-0 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between gap-3 bg-ink-900 px-5 py-3.5">
           <div className="flex items-center gap-2.5">
@@ -64,16 +82,7 @@ export default function PhoneRequestDialog({ onClose }) {
               <Toggle active={mode === 'new'} onClick={() => setMode('new')} icon={UserPlus}>מטופל חדש</Toggle>
             </div>
             {mode === 'existing' ? (
-              <select
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-              >
-                <option value="">בחרו מטופל…</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} · {p.phone}</option>
-                ))}
-              </select>
+              <PatientCombobox patients={patients} value={patientId} onChange={setPatientId} />
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
                 <label className="space-y-1">
@@ -82,9 +91,65 @@ export default function PhoneRequestDialog({ onClose }) {
                     className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-[11px] font-medium text-slate-500">טלפון</span>
-                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="050-0000000" inputMode="tel"
-                    className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500" />
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">טלפון <RequiredMark /></span>
+                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required aria-required="true"
+                    aria-invalid={newPhone.trim().length > 0 && !newPhoneValid} placeholder="050-0000000" inputMode="tel"
+                    className={clsx(
+                      'w-full h-10 rounded-xl ring-1 px-3 text-sm tabular-nums outline-none focus:ring-2',
+                      newPhone.trim().length > 0 && !newPhoneValid
+                        ? 'ring-red-300 focus:ring-red-500'
+                        : 'ring-slate-300 focus:ring-teal-500',
+                    )} />
+                  {newPhone.trim().length > 0 && !newPhoneValid && (
+                    <span className="text-[11px] text-red-500">מספר טלפון נייד לא תקין</span>
+                  )}
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">שנת לידה <RequiredMark /></span>
+                  <input value={newBirthYear} onChange={(e) => setNewBirthYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    required aria-required="true" aria-invalid={newBirthYear.trim().length > 0 && !newBirthYearValid}
+                    inputMode="numeric" maxLength={4} placeholder="1990"
+                    className={clsx(
+                      'w-full h-10 rounded-xl ring-1 px-3 text-sm tabular-nums outline-none focus:ring-2',
+                      newBirthYear.trim().length > 0 && !newBirthYearValid
+                        ? 'ring-red-300 focus:ring-red-500'
+                        : 'ring-slate-300 focus:ring-teal-500',
+                    )} />
+                  {newBirthYear.trim().length > 0 && !newBirthYearValid && (
+                    <span className="text-[11px] text-red-500">שנת לידה לא תקינה</span>
+                  )}
+                </label>
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">מין <RequiredMark /></span>
+                  <div className="flex gap-1.5">
+                    {GENDERS.map((g) => (
+                      <button
+                        type="button"
+                        key={g}
+                        onClick={() => setNewGender(g)}
+                        aria-pressed={newGender === g}
+                        className={clsx(
+                          'flex-1 h-10 rounded-xl ring-1 text-sm font-medium transition',
+                          newGender === g ? 'bg-teal-600 text-white ring-teal-600' : 'bg-white text-slate-600 ring-slate-300 hover:ring-teal-300',
+                        )}
+                      >
+                        {genderLabel(g)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Email — optional (secondary channel); spans the full row. */}
+                <label className="space-y-1 sm:col-span-2">
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1"><Mail size={12} /> אימייל <span className="text-slate-400">(רשות)</span></span>
+                  <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
+                    aria-invalid={newEmailInvalid} type="email" inputMode="email" dir="ltr" placeholder="name@example.com"
+                    className={clsx(
+                      'w-full h-10 rounded-xl ring-1 px-3 text-sm text-right outline-none focus:ring-2',
+                      newEmailInvalid ? 'ring-red-300 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+                    )} />
+                  {newEmailInvalid && (
+                    <span className="text-[11px] text-red-500">כתובת אימייל לא תקינה</span>
+                  )}
                 </label>
               </div>
             )}
@@ -102,7 +167,7 @@ export default function PhoneRequestDialog({ onClose }) {
           {/* Preferred therapist */}
           <Field label="מטפל מועדף" hint="רשות">
             <div className="flex flex-wrap gap-2">
-              {therapists.map((t) => (
+              {activeTherapists.map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -154,6 +219,122 @@ export default function PhoneRequestDialog({ onClose }) {
           </Button>
         </div>
       </Card>
+    </div>,
+    document.body,
+  )
+}
+
+// Searchable patient picker — replaces the native <select> so the secretary can type a
+// name (or phone) and get instant filtering. Selecting fills the input with the patient's
+// name; editing the text again clears the selection until a new pick is made. Keyboard:
+// ↑/↓ to move, Enter to pick, Esc to close. Closes on outside click.
+function PatientCombobox({ patients, value, onChange }) {
+  const selected = value ? patients.find((p) => p.id === value) : null
+  const [query, setQuery] = useState(selected ? selected.name : '')
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const boxRef = useRef(null)
+
+  // Keep the input text in sync when the selection changes from outside (e.g. reset).
+  useEffect(() => {
+    setQuery(selected ? selected.name : '')
+  }, [selected])
+
+  // Close the dropdown on any click outside the widget.
+  useEffect(() => {
+    function onDoc(e) {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const q = query.trim().toLowerCase()
+  // When a patient is already selected and the text still equals their name, show the
+  // full list (so the field acts like a picker); otherwise filter by name or phone.
+  const showAll = !q || (selected && query === selected.name)
+  const matches = (showAll
+    ? patients
+    : patients.filter((p) => p.name.toLowerCase().includes(q) || (p.phone || '').includes(query.trim()))
+  ).slice(0, 50)
+
+  function pick(p) {
+    onChange(p.id)
+    setQuery(p.name)
+    setOpen(false)
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (!open) setOpen(true)
+      setActive((i) => Math.min(i + 1, matches.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActive((i) => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter') {
+      if (open && matches[active]) {
+        e.preventDefault()
+        pick(matches[active])
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className="relative">
+        <Search size={15} className="absolute top-1/2 -translate-y-1/2 right-3 text-slate-400 pointer-events-none" />
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            if (value) onChange('') // editing invalidates the previous selection
+            setOpen(true)
+            setActive(0)
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          placeholder="חיפוש מטופל/ת לפי שם או טלפון…"
+          className="w-full h-10 rounded-xl ring-1 ring-slate-300 pr-9 pl-9 text-sm outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+        />
+        <ChevronDown
+          size={16}
+          className={clsx('absolute top-1/2 -translate-y-1/2 left-3 text-slate-400 transition', open && 'rotate-180')}
+        />
+      </div>
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scroll-thin rounded-xl bg-white ring-1 ring-slate-200 shadow-lg py-1"
+        >
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-slate-400">לא נמצאו מטופלים</li>
+          ) : (
+            matches.map((p, i) => (
+              <li key={p.id} role="option" aria-selected={p.id === value}>
+                <button
+                  type="button"
+                  onClick={() => pick(p)}
+                  onMouseEnter={() => setActive(i)}
+                  className={clsx(
+                    'w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-right transition',
+                    i === active ? 'bg-teal-50' : 'hover:bg-slate-50',
+                    p.id === value && 'font-semibold text-teal-700',
+                  )}
+                >
+                  <span className="truncate">{p.name}</span>
+                  <span className="text-xs text-slate-400 tabular-nums shrink-0">{p.phone}</span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
     </div>
   )
 }

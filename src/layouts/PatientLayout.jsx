@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarHeart, FilePlus2, LogOut, Plus } from 'lucide-react'
+import { CalendarHeart, FilePlus2, LogOut, Plus, RefreshCw } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { clsx } from '../components/clsx.js'
@@ -12,13 +12,21 @@ import { clsx } from '../components/clsx.js'
 export default function PatientLayout() {
   const { logout } = useSession()
   const navigate = useNavigate()
-  const { patientById, currentPatientId } = useData()
+  const { patientById, currentPatientId, devResetOnboarding } = useData()
   const me = patientById[currentPatientId]
   const displayName = me?.name ?? 'מטופל/ת חדש/ה'
 
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
+  }
+
+  // DEV ONLY: unlink the connected patient so the onboarding flow can be re-tested.
+  // A full reload re-runs the store load from the (now-reset) DB state — so the
+  // onboarding form reappears exactly as it would on a fresh login.
+  async function handleDevReset() {
+    await devResetOnboarding()
+    window.location.assign('/patient/new')
   }
 
   const nav = [
@@ -108,6 +116,18 @@ export default function PatientLayout() {
           </NavLink>
         ))}
       </nav>
+
+      {/* DEV ONLY reset — stripped from production builds (import.meta.env.DEV is
+          statically false in `vite build`, so this branch is tree-shaken away). */}
+      {import.meta.env.DEV && currentPatientId && (
+        <button
+          onClick={handleDevReset}
+          title="אתחול מצב מטופל חדש (מפתחים בלבד)"
+          className="fixed bottom-24 md:bottom-4 left-3 z-50 flex items-center gap-1.5 rounded-full bg-amber-500 text-white text-xs font-medium px-3 py-2 shadow-lg ring-1 ring-amber-600/40 hover:bg-amber-600 transition"
+        >
+          <RefreshCw size={14} /> dev · מטופל חדש
+        </button>
+      )}
     </div>
   )
 }

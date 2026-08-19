@@ -65,3 +65,16 @@ export function relativeFromNow(d) {
   const days = Math.floor(hrs / 24)
   return `לפני ${days} ימים`
 }
+
+// Patient age derived from year of birth (year-based, matching the birth-year
+// input). Returns null when unknown, so callers can render a blank gracefully.
+export function ageFromBirthYear(birthYear) {
+  if (!birthYear) return null
+  return new Date().getFullYear() - birthYear
+}
+
+// Hebrew display labels for the canonical gender values (see lib/validation.js → GENDERS).
+export const GENDER_LABELS = { male: 'זכר', female: 'נקבה', other: 'אחר' }
+export function genderLabel(g) {
+  return GENDER_LABELS[g] ?? ''
+}

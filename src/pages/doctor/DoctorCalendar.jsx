@@ -138,7 +138,7 @@ export default function DoctorCalendar() {
           </div>
         </div>
       </Card>
-      <p className="text-xs text-slate-400 flex items-center gap-1.5"><CalendarDays size={14} /> לחיצה על תור פותחת את כרטיס הביקור (צפייה בלבד).</p>
+      <p className="text-xs text-slate-400 flex items-center gap-1.5"><CalendarDays size={14} /> לחיצה על תור פותחת את כרטיס המטופל.</p>
     </div>
   )
 }

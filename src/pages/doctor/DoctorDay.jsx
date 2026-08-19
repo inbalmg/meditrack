@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import { isToday } from 'date-fns'
 import { Link } from 'react-router-dom'
-import { CalendarClock, Sparkles, ArrowLeft, Clock, ListChecks, Stethoscope, CheckCircle2 } from 'lucide-react'
+import { CalendarClock, Sparkles, ArrowLeft, Clock, ListChecks, CheckCircle2 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
 import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
-import { hhmm } from '../../lib/format.js'
+import { hhmm, genderLabel } from '../../lib/format.js'
 import { classifyRequest } from '../../lib/aiClassifier.js'
 
 const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green', 'לא הגיע': 'red' }
@@ -60,15 +60,17 @@ export default function DoctorDay() {
             ) : (
               restAppts.map((a) => {
                 const p = patientById[a.patientId]
+                // Completed visits stay listed all day, muted (record, not "to-do").
+                const done = a.status === 'הסתיים'
                 return (
                   <Link key={a.id} to={`/doctor/visit/${a.id}`}
-                    className="flex items-center gap-3 rounded-xl px-2.5 py-2.5 hover:bg-slate-50 transition group">
+                    className={`flex items-center gap-3 rounded-xl px-2.5 py-2.5 hover:bg-slate-50 transition group ${done ? 'opacity-60' : ''}`}>
                     <div className="text-center w-12 shrink-0">
-                      <p className="text-sm font-bold text-slate-700 tabular-nums">{hhmm(a.start)}</p>
+                      <p className={`text-sm font-bold tabular-nums ${done ? 'text-slate-500' : 'text-slate-700'}`}>{hhmm(a.start)}</p>
                       <p className="text-[10px] text-slate-400">{a.durationMin}′</p>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                      <p className={`text-sm font-medium truncate ${done ? 'text-slate-500' : 'text-slate-800'}`}>{p.name}</p>
                       <p className="text-xs text-slate-400 truncate">{a.reason}</p>
                     </div>
                     <Badge tone={STATUS_TONE[a.status]}>{a.status}</Badge>
@@ -97,9 +99,6 @@ export default function DoctorDay() {
                 </div>
               ))
             )}
-            <p className="text-[11px] text-slate-400 flex items-center gap-1 pt-1 px-1">
-              <Stethoscope size={13} /> צפייה בלבד — סטטוס מנוהל ע״י המזכירות
-            </p>
           </div>
         </Card>
       </div>
@@ -117,7 +116,7 @@ function NextCard({ appt, patient }) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
           <p className="text-lg font-bold leading-tight">{patient.name}</p>
-          <p className="text-teal-50/90 text-sm">{patient.age} · {patient.gender === 'ז' ? 'זכר' : 'נקבה'} · {patient.phone}</p>
+          <p className="text-teal-50/90 text-sm">{patient.age} · {genderLabel(patient.gender)} · {patient.phone}</p>
         </div>
         <div className="text-left">
           <p className="text-2xl font-bold tabular-nums leading-none">{hhmm(appt.start)}</p>

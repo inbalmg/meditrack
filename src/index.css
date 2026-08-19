@@ -2,6 +2,7 @@
 
 @theme {
   --font-sans: 'Rubik', 'Heebo', 'Segoe UI', system-ui, sans-serif;
+  --font-heading: 'Heebo', 'Assistant', 'Rubik', system-ui, sans-serif;
 
   /* MediTrack — medical teal palette */
   --color-teal-50: #f0fdfa;
@@ -41,6 +42,16 @@ body {
   color: #1a2e2e;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* כל הכותרות במערכת בגופן Heebo (חלופה: Assistant). */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
 }
 
 /* Thin, subtle scrollbars for inner-scroll cards.

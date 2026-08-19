@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 import { Card, Button } from './ui.jsx'
 import { clsx } from './clsx.js'
@@ -24,7 +25,11 @@ export default function ConfirmDialog({
 
   const iconTone = tone === 'danger' ? 'bg-red-100 text-red-600' : 'bg-teal-100 text-teal-600'
 
-  return (
+  // Portal to <body>: page wrappers keep a persistent transform (animate-fade with
+  // fill-mode: both), which would otherwise make the wrapper the containing block for
+  // this fixed overlay — pinning inset-0 to the tall page box and pushing the centered
+  // card off-screen (bottom-anchored / clipped). Same pattern as ScheduleDialog.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade"
       onClick={onClose}
@@ -49,6 +54,7 @@ export default function ConfirmDialog({
           <Button variant={tone} onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </Card>
-    </div>
+    </div>,
+    document.body,
   )
 }

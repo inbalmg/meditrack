@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { SessionProvider, useSession } from './session.jsx'
+import { useSession } from './session.jsx'
 import Login from './pages/Login.jsx'
 import ClinicLayout from './layouts/ClinicLayout.jsx'
 import DoctorLayout from './layouts/DoctorLayout.jsx'
@@ -83,9 +83,5 @@ function AppRoutes() {
 }
 
 export default function App() {
-  return (
-    <SessionProvider>
-      <AppRoutes />
-    </SessionProvider>
-  )
+  return <AppRoutes />
 }

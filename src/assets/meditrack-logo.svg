@@ -1,0 +1,18 @@
+<svg viewBox="0 0 500 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MediTrack Clinic">
+  <title>MediTrack Clinic</title>
+  <!-- טקסט: MediTrack -->
+  <text x="200" y="95" text-anchor="middle" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="44" letter-spacing="0.5">MediTrack</text>
+  <!-- טקסט: CLINIC -->
+  <text x="200" y="135" text-anchor="middle" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="22" letter-spacing="6">CLINIC</text>
+  <!-- אייקון: יומן/קליפבורד + צלב רפואי -->
+  <g transform="translate(340, 35)">
+    <rect x="10" y="20" width="90" height="105" rx="18" stroke="#0D7A68" stroke-width="6" fill="none" />
+    <path d="M 30 20 V 10 M 45 20 V 10 M 60 20 V 10 M 75 20 V 10" stroke="#0D7A68" stroke-width="6" stroke-linecap="round" />
+    <path d="M 25 10 H 80" stroke="#0D7A68" stroke-width="6" stroke-linecap="round" />
+    <g transform="translate(27, 45)">
+      <path d="M 20 5 H 36 V 20 H 51 V 36 H 36 V 51 H 20 V 36 H 5 V 20 H 20 Z" stroke="#0D7A68" stroke-width="3.5" stroke-linejoin="round" fill="none" />
+      <path d="M 12 28 C 12 40, 44 40, 44 28" stroke="#0D7A68" stroke-width="3" fill="none" stroke-linecap="round" />
+      <circle cx="28" cy="25" r="4" fill="#0D7A68" />
+    </g>
+  </g>
+</svg>
