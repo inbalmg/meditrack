@@ -42,7 +42,7 @@ const mapTherapist = (r) => ({ id: r.id, name: r.name, specialty: r.specialty, c
 // only birth_year (NOT NULL). See migration 18 (the redundant `age` column was dropped).
 const mapPatient = (r) => {
   const birthYear = r.birth_year ?? null
-  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender, email: r.email ?? null }
+  return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender, email: r.email ?? null, notifyOptIn: r.notify_opt_in ?? true }
 }
 const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
 const mapAppt = (r) => ({
@@ -145,13 +145,20 @@ export function DataProvider({ children }) {
       setTasks((tk.data ?? []).map(mapTask))
       setStaff((st.data ?? []).map(mapStaff))
       setSettings(cl.data?.settings ?? DEFAULT_SETTINGS)
-      setRequests((rq.data ?? []).map((r) => ({
-        id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
-        description: r.description, preferredTherapistId: r.preferred_therapist_id,
-        visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
-        source: r.source, status: r.status,
-        ai: r.ai ?? aiFor({ description: r.description, preferredTherapistId: r.preferred_therapist_id, visitTypeHint: r.visit_type_hint }),
-      })))
+      setRequests((rq.data ?? []).map((r) => {
+        const kind = r.kind ?? 'booking'
+        return {
+          id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
+          updatedAt: new Date(r.updated_at ?? r.created_at),
+          description: r.description, preferredTherapistId: r.preferred_therapist_id,
+          visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
+          source: r.source, status: r.status, rejectionReason: r.rejection_reason ?? null,
+          kind, subject: r.subject ?? null, staffNote: r.staff_note ?? null,
+          convertedTaskId: r.converted_task_id ?? null,
+          // Human inquiries carry no AI payload; only booking requests get classified.
+          ai: kind === 'inquiry' ? null : (r.ai ?? aiFor({ description: r.description, preferredTherapistId: r.preferred_therapist_id, visitTypeHint: r.visit_type_hint })),
+        }
+      }))
       // A patient sees only their own patient row (RLS) — that's their currentPatientId.
       setCurrentPatient(role?.isPatient ? ((pt.data ?? [])[0]?.id ?? null) : null)
       setReady(true)
@@ -329,7 +336,7 @@ export function DataProvider({ children }) {
   }
 
   // --- Patients ---
-  function addPatient({ name, phone, birthYear = null, gender = null, email = null }) {
+  function addPatient({ name, phone, birthYear = null, gender = null, email = null, notifyOptIn = true }) {
     // Required fields (mirrors the DB: phone/birth_year/gender are NOT NULL, gender is
     // CHECK-constrained). Backstop under the intake forms — reject invalid input.
     const cleanName = (name || '').trim()
@@ -342,7 +349,8 @@ export function DataProvider({ children }) {
     }
     // age is derived for the UI only; the DB stores birth_year (the stable fact).
     const age = ageFromBirthYear(birthYear)
-    const patient = { id: uuid(), name: cleanName, phone: cleanPhone, birthYear, age, gender, email: cleanEmail || null }
+    const notify = notifyOptIn !== false
+    const patient = { id: uuid(), name: cleanName, phone: cleanPhone, birthYear, age, gender, email: cleanEmail || null, notifyOptIn: notify }
     setPatients((prev) => [...prev, patient])
     // A patient self-registering links the row to their auth user (profile_id = auth.uid())
     // so RLS (patients_insert_self + app.patient_id()) accepts it and resolves their id for
@@ -351,7 +359,7 @@ export function DataProvider({ children }) {
     const profileId = selfRegister ? (userId ?? null) : null
     // Resolve the builder exactly once, then reuse the promise (persist + the ordering gate).
     const write = Promise.resolve(
-      supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name: cleanName, phone: cleanPhone, birth_year: birthYear, gender, email: cleanEmail || null, profile_id: profileId }),
+      supabase.from('patients').insert({ id: patient.id, clinic_id: clinicId, name: cleanName, phone: cleanPhone, birth_year: birthYear, gender, email: cleanEmail || null, notify_opt_in: notify, profile_id: profileId }),
     )
     persist(write, 'addPatient')
     if (selfRegister) pendingPatientWrite.current = write.catch(() => {})
@@ -365,6 +373,26 @@ export function DataProvider({ children }) {
     if ('email' in clean) clean = { ...clean, email: normalizeEmail(clean.email) || null }
     setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...clean } : p)))
     persist(supabase.from('patients').update(clean).eq('id', id), 'updatePatient')
+  }
+
+  // --- DEV ONLY: reset the connected patient back to the "new patient" state ---
+  // Completing onboarding permanently links the demo login (newpatient@meditrack.test)
+  // to a patients row, so the onboarding flow can't be re-tested on refresh. This
+  // unlinks the caller's own row (profile_id → null) so app.patient_id() no longer
+  // resolves it — RLS-safe (patients_update_self passes because app.patient_id() is a
+  // STABLE function evaluated on the statement-start snapshot, when the row is still
+  // linked). Its own future appointments are dropped too (patient may delete own). The
+  // row itself stays as an unlinked phone-book record (patients have no delete policy).
+  // Guarded by import.meta.env.DEV — a no-op in production builds.
+  async function devResetOnboarding() {
+    if (!import.meta.env.DEV) return
+    const id = currentPatientId
+    if (!id) return
+    await supabase.from('appointments').delete().eq('patient_id', id)
+    await supabase.from('patients').update({ profile_id: null }).eq('id', id)
+    setAppointments((prev) => prev.filter((a) => a.patientId !== id))
+    setPatients((prev) => prev.filter((p) => p.id !== id))
+    setCurrentPatient(null)
   }
 
   // --- PRIMARY path: patient self-books (confirmed, no approval) ---
@@ -396,11 +424,12 @@ export function DataProvider({ children }) {
   function submitRequest({ patientId, description, preferredTherapistId, visitTypeHint, preferredTime, source }) {
     const id = uuid()
     const input = { description, preferredTherapistId: preferredTherapistId || null, visitTypeHint: visitTypeHint || null }
+    const now = new Date()
     const req = {
-      id, patientId, createdAt: new Date(), description,
+      id, patientId, createdAt: now, updatedAt: now, description,
       preferredTherapistId: input.preferredTherapistId, visitTypeHint: input.visitTypeHint,
       preferredTime: preferredTime || 'גמיש', source: source || 'פורטל', status: 'ממתין',
-      ai: aiFor(input),
+      rejectionReason: null, ai: aiFor(input),
     }
     setRequests((prev) => [req, ...prev])
     // Same ordering as bookAppointment: a new patient's request insert (req_insert_patient:
@@ -433,7 +462,7 @@ export function DataProvider({ children }) {
       visitType: tr?.name ?? req.ai.visitType, status: 'קבוע', reason: req.description,
       source: req.source,
     }
-    setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'אושר' } : r)))
+    setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'אושר', updatedAt: new Date() } : r)))
     setAppointments((prev) => [...prev, appt])
     persist(supabase.from('appointments').insert({
       id: apptId, clinic_id: clinicId, patient_id: req.patientId, therapist_id: therapistId,
@@ -471,9 +500,95 @@ export function DataProvider({ children }) {
     setBookingConfirmation(null)
   }
 
-  function rejectRequest(requestId) {
-    setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'נדחה' } : r)))
-    persist(supabase.from('requests').update({ status: 'נדחה' }).eq('id', requestId), 'rejectRequest')
+  // --- HUMAN INQUIRY path: "not sure which treatment?" → straight to the secretary ---
+  // No AI: the patient picks a subject (an active service, or אדמיניסטרציה / אחר) + an
+  // optional free-text detail. Persisted as a request with kind='inquiry' so it lands in
+  // the same secretary queue, but with no ai payload and no scheduling — the secretary
+  // resolves it via one of two terminal paths: close it directly (updateInquiry → 'סגור')
+  // or convert it to a tracked task (convertInquiryToTask).
+  function submitInquiry({ patientId, subject, description }) {
+    const id = uuid()
+    const now = new Date()
+    const req = {
+      id, patientId, createdAt: now, updatedAt: now,
+      description: (description || '').trim(), preferredTherapistId: null, visitTypeHint: null,
+      preferredTime: 'גמיש', source: 'פורטל', status: 'ממתין', rejectionReason: null,
+      kind: 'inquiry', subject, staffNote: null, ai: null,
+    }
+    setRequests((prev) => [req, ...prev])
+    // Same ordering gate as submitRequest: a just-self-registered patient's insert must
+    // wait for their patients row to commit so req_insert_patient (patient_id = app.patient_id()) resolves.
+    persist(afterPatientWrite(() => supabase.from('requests').insert({
+      id, clinic_id: clinicId, patient_id: patientId, description: req.description,
+      preferred_time: req.preferredTime, source: req.source, status: 'ממתין',
+      kind: 'inquiry', subject,
+    })), 'submitInquiry')
+    return req
+  }
+
+  // Secretary works an inquiry: set its status (Path A close → 'סגור') and/or save an
+  // internal note. Only the given keys are written; updated_at is bumped by the DB trigger.
+  function updateInquiry(requestId, patch) {
+    setRequests((prev) => prev.map((r) => (
+      r.id === requestId ? { ...r, ...patch, updatedAt: new Date() } : r
+    )))
+    const row = {}
+    if (patch.status !== undefined) row.status = patch.status
+    if (patch.staffNote !== undefined) row.staff_note = patch.staffNote
+    if (Object.keys(row).length) persist(supabase.from('requests').update(row).eq('id', requestId), 'updateInquiry')
+  }
+
+  // Save the staff-only internal note on ANY request (booking/phone/AI + inquiry). Backs the
+  // auto-saving note field on the secretary board — `note` is already trimmed-or-null.
+  function updateRequestNote(requestId, note) {
+    setRequests((prev) => prev.map((r) => (
+      r.id === requestId ? { ...r, staffNote: note } : r
+    )))
+    persist(supabase.from('requests').update({ staff_note: note }).eq('id', requestId), 'updateRequestNote')
+  }
+
+  // Path B — convert an inquiry into a tracked task. Creates a task (status 'בטיפול',
+  // unassigned = the "general / office" default) copying the inquiry's context, then marks
+  // the request 'הומר למשימה' so it drops off the active board. Mutually exclusive with the
+  // direct-close path (no task is created there).
+  function convertInquiryToTask(requestId) {
+    const req = requests.find((r) => r.id === requestId)
+    if (!req) return
+    // Carry BOTH the patient's inquiry text and the secretary's internal note into the
+    // task so no context is lost on conversion.
+    const noteParts = []
+    if (req.description?.trim()) noteParts.push(req.description.trim())
+    if (req.staffNote?.trim()) noteParts.push(`הערה פנימית: ${req.staffNote.trim()}`)
+    const task = {
+      id: uuid(), title: `פנייה מהפורטל — ${req.subject ?? ''}`.trim(),
+      patientId: req.patientId, assigneeId: null, createdBy: userId ?? null,
+      createdAt: new Date(), due: new Date(), status: 'בטיפול', source: 'ידני',
+      note: noteParts.join('\n\n'),
+    }
+    setTasks((prev) => [task, ...prev])
+    persist(supabase.from('tasks').insert({
+      id: task.id, clinic_id: clinicId, title: task.title, patient_id: task.patientId,
+      assignee_id: null, created_by: task.createdBy, due: task.due.toISOString(),
+      status: 'בטיפול', source: 'ידני', note: task.note,
+    }), 'convertInquiryToTask.task')
+    // Link the request to its task so the patient view can later flip 'הומר למשימה' →
+    // 'סגור' ("טופל") when the task completes (reflectConvertedTask).
+    setRequests((prev) => prev.map((r) => (
+      r.id === requestId ? { ...r, status: 'הומר למשימה', convertedTaskId: task.id, updatedAt: new Date() } : r
+    )))
+    persist(supabase.from('requests').update({ status: 'הומר למשימה', converted_task_id: task.id }).eq('id', requestId), 'convertInquiryToTask.req')
+    return task
+  }
+
+  // Staff rejects a request, optionally with a note shown to the patient on their
+  // dashboard banner. updated_at is bumped by a DB trigger; mirror it locally so the
+  // patient's 7-day banner window is accurate without a reload.
+  function rejectRequest(requestId, reason = null) {
+    const rejectionReason = (reason || '').trim() || null
+    setRequests((prev) => prev.map((r) => (
+      r.id === requestId ? { ...r, status: 'נדחה', rejectionReason, updatedAt: new Date() } : r
+    )))
+    persist(supabase.from('requests').update({ status: 'נדחה', rejection_reason: rejectionReason }).eq('id', requestId), 'rejectRequest')
   }
 
   // --- Status + tasks ---
@@ -539,6 +654,19 @@ export function DataProvider({ children }) {
     persist(supabase.rpc('set_clinical_note', { p_appt: apptId, p_note: value }), 'saveClinicalNote')
   }
 
+  // Mirror a converted inquiry-task's lifecycle back onto its source request. Patients
+  // can't read tasks (RLS), so the request status is their only signal: a completed task
+  // flips the request to 'סגור' (patient sees "טופל"); any active task keeps it
+  // 'הומר למשימה' (patient sees "בטיפול הצוות"). No-op for tasks with no linked request.
+  function reflectConvertedTask(taskId, taskStatus) {
+    const linked = requests.find((r) => r.convertedTaskId === taskId)
+    if (!linked) return
+    const reflect = taskStatus === 'הושלם' ? 'סגור' : 'הומר למשימה'
+    if (linked.status === reflect) return
+    setRequests((prev) => prev.map((r) => (r.id === linked.id ? { ...r, status: reflect, updatedAt: new Date() } : r)))
+    persist(supabase.from('requests').update({ status: reflect }).eq('id', linked.id), 'reflectConvertedTask')
+  }
+
   function setTaskStatus(taskId, newStatus) {
     // Stamp completedAt when a task enters "הושלם"; clear it if it ever leaves,
     // so the Task Board recency filter can bucket completed work by completion time.
@@ -548,6 +676,7 @@ export function DataProvider({ children }) {
       supabase.from('tasks').update({ status: newStatus, completed_at: completedAt ? completedAt.toISOString() : null }).eq('id', taskId),
       'setTaskStatus',
     )
+    reflectConvertedTask(taskId, newStatus)
   }
 
   function addTask({ title, patientId, assigneeId, due, note }) {
@@ -631,6 +760,8 @@ export function DataProvider({ children }) {
       ? prev.map((t) => (t.id === task.id ? restored : t))
       : [restored, ...prev]))
     persist(supabase.from('tasks').update({ status: 'בטיפול', completed_at: null }).eq('id', task.id), 'restoreTask')
+    // Restoring a converted task to active work flips the patient view back to "בטיפול הצוות".
+    reflectConvertedTask(task.id, 'בטיפול')
     return restored
   }
 
@@ -639,8 +770,8 @@ export function DataProvider({ children }) {
     setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor, classifyAsync,
     assignees, assigneeById,
     updateSettings, addTherapist, updateTherapist, addTreatment, updateTreatment, removeTreatment,
-    addStaff, updateStaff, removeStaff, addPatient, updatePatient,
-    bookAppointment, cancelAppointment, submitRequest, approveRequest, rejectRequest,
+    addStaff, updateStaff, removeStaff, addPatient, updatePatient, devResetOnboarding,
+    bookAppointment, cancelAppointment, submitRequest, submitInquiry, updateInquiry, updateRequestNote, convertInquiryToTask, approveRequest, rejectRequest,
     bookingConfirmation, clearBookingConfirmation,
     setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
     fetchArchivedTasks, restoreTask,

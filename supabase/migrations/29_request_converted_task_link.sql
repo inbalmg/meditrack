@@ -1,0 +1,11 @@
+-- MediTrack — Migration 29: link a converted inquiry to the task it spawned.
+-- The patient portal shows a converted inquiry as "בטיפול הצוות" while its task is active
+-- and "טופל" once done. But patients cannot read the tasks table (RLS has no patient
+-- policy), so the request row is the only channel they can see. This column links a
+-- request to its converted task; the app mirrors the task's completion back onto the
+-- request status (הומר למשימה → סגור) so the patient view can flip to "טופל".
+--
+-- Plain uuid (no FK) on purpose: the task and the request are inserted/updated via
+-- independent fire-and-forget writes, so an FK could race. The link is only used for an
+-- in-memory lookup + hydration.
+alter table public.requests add column converted_task_id uuid;

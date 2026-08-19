@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Sparkles, Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Route, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Loader2, Mail,
+  Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Mail, ShieldCheck, HeartHandshake, X, Send, CheckCircle2,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
@@ -40,19 +41,11 @@ function buildSlots(date, therapistId, durationMin, appointments) {
   return out
 }
 
-// Minimal-quality gate for the "not sure?" free-text: enough to classify, not a
-// single char / digits / emoji. Needs ≥4 trimmed chars AND at least one letter
-// (any script), so "כאב גב" / "מיגרנה" pass but "." / "12" / "🙂" don't.
-function meaningfulDescription(text) {
-  const t = (text || '').trim()
-  return t.length >= 4 && /\p{L}/u.test(t)
-}
-
 export default function NewRequest() {
   const {
-    bookableTherapists, treatmentsForTherapist, appointments, currentPatientId,
+    bookableTherapists, treatmentsForTherapist, activeTherapists, appointments, currentPatientId,
     therapistById, treatmentById, patientById,
-    bookAppointment, submitRequest, addPatient, updatePatient, setCurrentPatient,
+    bookAppointment, submitInquiry, addPatient, updatePatient, setCurrentPatient,
     cancelAppointment,
   } = useData()
   const navigate = useNavigate()
@@ -68,44 +61,65 @@ export default function NewRequest() {
   )
 
   const me = currentPatientId ? patientById[currentPatientId] : null
+  // A patient with no record yet must first complete the onboarding form (personal
+  // details + consent) — collected up-front, ONCE, before they reach the booking
+  // screen. Once the record is saved, `me` resolves and the gate closes.
   const isNewPatient = !me
 
-  // Contact details collected within the booking flow. Prefilled from the
-  // patient's record when registered; empty (and required) for a new patient.
+  // Contact fields — shared by both screens:
+  //   • Onboarding (new patient): start empty, collected + saved via addPatient.
+  //   • Booking (registered patient): PRE-FILLED from the saved record and editable;
+  //     any change is persisted with updatePatient on confirm.
   // The phone is where appointment reminders (WhatsApp/SMS) are sent.
-  const [name, setName] = useState(me?.name ?? '')
+  const [name, setName] = useState('')
   const [phone, setPhone] = useState(me?.phone ?? '')
-  // Year of birth — collected once for a new patient (age is derived from it).
+  // Year of birth — collected once at onboarding (age is derived from it).
   const [birthYear, setBirthYear] = useState('')
-  // Gender — required for a new patient (male/female/other).
-  const [gender, setGender] = useState(me?.gender ?? '')
-  // Email — OPTIONAL secondary notification channel; prefilled for a registered patient.
+  // Gender — required at onboarding (male/female).
+  const [gender, setGender] = useState('')
+  // Email — OPTIONAL secondary notification channel.
   const [email, setEmail] = useState(me?.email ?? '')
-  const contactValid =
-    phoneValid(phone) &&
-    (!email.trim() || emailValid(email)) &&
-    (!isNewPatient || (name.trim().length > 0 && birthYearValid(birthYear) && isValidGender(gender)))
+  // Consent: privacy/terms is a MANDATORY gate (must be accepted to register);
+  // notifications (SMS/email) is an OPTIONAL preference, persisted as notify_opt_in.
+  // BOTH are collected STRICTLY at onboarding — never shown on the booking form.
+  const [agreeTerms, setAgreeTerms] = useState(false)
+  const [notifyOptIn, setNotifyOptIn] = useState(true)
 
-  // Ensure a patient record exists (creating a new one / saving an edited phone)
-  // and return its id, or null if the contact details are invalid.
-  function commitContact() {
-    if (!contactValid) return null
-    if (isNewPatient) {
-      // addPatient normalizes phone + email; pass the raw values through.
-      const p = addPatient({ name: name.trim(), phone, birthYear: Number(birthYear), gender, email })
-      setCurrentPatient(p.id)
-      return p.id
-    }
-    // Persist only real changes, comparing on the normalized form so re-typing the
-    // same value with/without dashes (phone) or casing (email) isn't treated as an edit.
+  const detailsValid =
+    name.trim().length > 0 &&
+    phoneValid(phone) &&
+    birthYearValid(birthYear) &&
+    isValidGender(gender) &&
+    (!email.trim() || emailValid(email))
+  const onboardingValid = detailsValid && agreeTerms
+
+  // Booking-form contact validity — phone required, email optional-but-valid.
+  const contactValid = phoneValid(phone) && (!email.trim() || emailValid(email))
+
+  // Persist edited phone/email back to the patient record. Compares on the normalized
+  // form so re-typing the same value with/without dashes (phone) or casing (email)
+  // isn't treated as an edit. No-op when nothing changed.
+  function persistContactEdits() {
+    if (!me) return
     const patch = {}
     if (normalizePhone(phone) !== normalizePhone(me.phone)) patch.phone = phone
     if (normalizeEmail(email) !== normalizeEmail(me.email)) patch.email = email
     if (Object.keys(patch).length) updatePatient(currentPatientId, patch)
-    return currentPatientId
   }
 
-  const [mode, setMode] = useState('book') // 'book' | 'unsure'
+  // Create the patient record from the onboarding form, then become the connected
+  // patient so the booking screen (and the RLS-scoped inserts that follow) resolve.
+  function completeOnboarding() {
+    if (!onboardingValid) return
+    // addPatient normalizes phone + email; pass the raw values through.
+    const p = addPatient({ name: name.trim(), phone, birthYear: Number(birthYear), gender, email, notifyOptIn })
+    setCurrentPatient(p.id)
+  }
+
+  // "Not sure which treatment?" opens a lightweight inquiry modal that hands the
+  // question to the secretary (no AI). `inquirySent` shows a success banner afterward.
+  const [inquiryOpen, setInquiryOpen] = useState(false)
+  const [inquirySent, setInquirySent] = useState(false)
   const [therapistId, setTherapistId] = useState(rescheduling?.therapistId ?? '')
   const [treatmentId, setTreatmentId] = useState(rescheduling?.treatmentId ?? '')
   // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
@@ -142,11 +156,11 @@ export default function NewRequest() {
     setTreatmentId(id); setSlot(null)
   }
   function confirm() {
-    if (!slot || !contactValid) return
-    const patientId = commitContact()
-    if (!patientId) return
+    if (!slot || !currentPatientId || !contactValid) return
+    // Persist any edit the patient made to their phone/email before booking.
+    persistContactEdits()
     const appt = bookAppointment({
-      patientId,
+      patientId: currentPatientId,
       therapistId,
       treatmentId,
       start: set(date, { hours: slot.hour, minutes: slot.minute, seconds: 0, milliseconds: 0 }),
@@ -159,22 +173,15 @@ export default function NewRequest() {
   // Clear the form to start a fresh request without leaving the page. Needed because
   // the success screen lives on the same route (/patient/new): clicking the "בקשת תור"
   // nav tab while already here doesn't remount, so the confirmation would otherwise
-  // stick until the user navigated away and back. Contact details reflect the now-
-  // registered patient (a new patient becomes registered on their first booking).
+  // stick until the user navigated away and back. The patient is already registered by
+  // now, so only the booking selection is reset — personal details stay on file.
   function resetForm() {
-    const current = currentPatientId ? patientById[currentPatientId] : null
     setBooked(null)
-    setMode('book')
     setTherapistId('')
     setTreatmentId('')
     setSlot(null)
     setWeekStart(thisWeekStart)
     setDate(firstDay)
-    setName(current?.name ?? '')
-    setPhone(current?.phone ?? '')
-    setBirthYear('')
-    setGender(current?.gender ?? '')
-    setEmail(current?.email ?? '')
   }
 
   // ---------- Booked confirmation ----------
@@ -185,7 +192,7 @@ export default function NewRequest() {
         <Card className="p-6 text-center">
           <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><Check size={32} /></span>
           <h2 className="text-xl font-bold text-slate-800">התור נקבע!</h2>
-          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{normalizePhone(phone)}.</p>
+          <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{me?.phone ?? normalizePhone(phone)}.</p>
         </Card>
         <Card className="p-5">
           <dl className="space-y-2.5 text-sm">
@@ -207,31 +214,45 @@ export default function NewRequest() {
     )
   }
 
-  // ---------- "Not sure?" AI path ----------
-  if (mode === 'unsure') {
-    return <UnsurePath
-      isNew={isNewPatient}
-      name={name} setName={setName} phone={phone} setPhone={setPhone}
-      birthYear={birthYear} setBirthYear={setBirthYear}
-      gender={gender} setGender={setGender}
-      email={email} setEmail={setEmail}
-      contactValid={contactValid}
-      onBack={() => setMode('book')}
-      onProceed={(tId, trId) => { setMode('book'); setTherapistId(tId); setTreatmentId(trId); setSlot(null) }}
-      onSendToClinic={(desc, source) => {
-        const patientId = commitContact()
-        if (!patientId) return
-        submitRequest({ patientId, description: desc, preferredTherapistId: null, visitTypeHint: null, preferredTime: 'גמיש', source })
-        navigate('/patient')
-      }}
-    />
+  // ---------- Onboarding: a new patient completes their details first ----------
+  // A patient with no record yet fills the personal-details + consent form BEFORE
+  // reaching the booking screen. On submit their `patients` row is created and they
+  // become the connected patient, which closes this gate.
+  if (isNewPatient) {
+    return (
+      <Onboarding
+        name={name} setName={setName} phone={phone} setPhone={setPhone}
+        birthYear={birthYear} setBirthYear={setBirthYear}
+        gender={gender} setGender={setGender}
+        email={email} setEmail={setEmail}
+        agreeTerms={agreeTerms} setAgreeTerms={setAgreeTerms}
+        notifyOptIn={notifyOptIn} setNotifyOptIn={setNotifyOptIn}
+        canSubmit={onboardingValid}
+        onSubmit={completeOnboarding}
+      />
+    )
+  }
+
+  // Subjects for the inquiry dropdown: the unique specialties of the clinic's active
+  // therapists (from the DB) + two catch-alls. Not the service/treatment list.
+  const inquirySubjects = [
+    ...new Set(activeTherapists.map((t) => (t.specialty || '').trim()).filter(Boolean)),
+    'אדמיניסטרציה', 'אחר',
+  ]
+
+  function sendInquiry(subject, description) {
+    submitInquiry({ patientId: currentPatientId, subject, description })
+    setInquiryOpen(false)
+    setInquirySent(true)
   }
 
   // ---------- Primary: self-booking ----------
+  const firstName = (me?.name ?? '').trim().split(/\s+/)[0]
   return (
     <div className="animate-fade space-y-5 max-w-xl mx-auto">
       <div>
-        <h1 className="text-xl font-bold text-slate-800">{rescheduling ? 'שינוי מועד' : 'קביעת תור'}</h1>
+        <p className="text-teal-600 text-sm font-medium">שלום {firstName} 👋</p>
+        <h1 className="text-xl font-bold text-slate-800 mt-0.5">{rescheduling ? 'שינוי מועד' : 'קביעת תור'}</h1>
         <p className="text-slate-500 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
       </div>
 
@@ -242,18 +263,39 @@ export default function NewRequest() {
         </div>
       )}
 
-      {/* Not-sure entry */}
+      {/* Inquiry sent — success banner */}
+      {inquirySent && (
+        <div className="flex items-start gap-3 rounded-xl ring-1 ring-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+          <p className="flex-1 leading-relaxed">הפנייה נשלחה בהצלחה! הצוות שלנו יצור עמך קשר בהקדם.</p>
+          <button onClick={() => setInquirySent(false)} aria-label="סגירה" className="text-emerald-600 hover:text-emerald-800 p-0.5 -m-0.5 shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Not-sure entry — opens a human inquiry to the clinic team (no AI) */}
       <button
-        onClick={() => setMode('unsure')}
-        className="w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right"
+        onClick={() => setInquiryOpen(true)}
+        className="group w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right cursor-pointer shadow-sm transition hover:bg-teal-50 hover:ring-teal-300 hover:shadow-md"
       >
         <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={18} /></span>
         <div className="flex-1">
           <p className="text-sm font-medium text-slate-800">לא בטוח/ה איזה טיפול מתאים?</p>
-          <p className="text-xs text-slate-500">תארו מה מטריד — ה-AI ימליץ על טיפול ומטפל</p>
+          <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם להתאמה אישית</p>
         </div>
-        <ArrowRight size={16} className="text-teal-600" />
+        <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:translate-x-0.5">
+          <ArrowRight size={16} />
+        </span>
       </button>
+
+      {inquiryOpen && (
+        <InquiryDialog
+          subjects={inquirySubjects}
+          onClose={() => setInquiryOpen(false)}
+          onSubmit={sendInquiry}
+        />
+      )}
 
       {/* Step 1 — provider */}
       <Step n={1} label="בחירת מטפל/ת" done={!!therapistId}>
@@ -366,12 +408,12 @@ export default function NewRequest() {
         </Step>
       )}
 
-      {/* Contact details — where reminders are sent; prefilled for a registered
-          patient, empty + required for a new one. Shown alongside the date/time
-          step so the numbering stays contiguous (1→2→3→4). */}
+      {/* Step 4 — contact details, PRE-FILLED from the saved record and editable.
+          Only phone + email (name/birth-year/gender + consent stay onboarding-only);
+          any edit is persisted to the patients row on confirm. */}
       {therapistId && treatmentId && (
         <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
-          <ContactFields isNew={isNewPatient} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
+          <ContactFields isNew={false} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
         </Step>
       )}
 
@@ -380,6 +422,64 @@ export default function NewRequest() {
         <Check size={18} /> {slot ? `אישור — יום ${dayName(date)} ${hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}` : 'בחרו מועד'}
       </Button>
     </div>
+  )
+}
+
+// First-step onboarding for a NEW patient: personal details (reusing ContactFields)
+// + a mandatory privacy/terms consent and an optional notifications opt-in. On submit
+// the caller creates the patients row and the booking screen takes over.
+function Onboarding({
+  name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender,
+  email, setEmail, agreeTerms, setAgreeTerms, notifyOptIn, setNotifyOptIn,
+  canSubmit, onSubmit,
+}) {
+  return (
+    <div className="animate-fade space-y-5 max-w-xl mx-auto">
+      <div>
+        <span className="grid place-items-center h-12 w-12 rounded-2xl bg-teal-100 text-teal-600 mb-3"><HeartHandshake size={24} /></span>
+        <h1 className="text-xl font-bold text-slate-800">ברוכים הבאים למרפאה 👋</h1>
+        <p className="text-slate-500 text-sm mt-1">רק כמה פרטים לפתיחת התיק — פעם אחת — ואז נעבור לקביעת התור.</p>
+      </div>
+
+      <Card className="p-5 space-y-4">
+        <ContactFields isNew name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
+
+        <div className="pt-1 space-y-2.5 border-t border-slate-100">
+          <div className="pt-3" />
+          <CheckRow checked={agreeTerms} onChange={setAgreeTerms}>
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-teal-600 shrink-0" />
+              <span>קראתי ואני מאשר/ת את <span className="font-medium text-teal-700">מדיניות הפרטיות ותנאי השימוש</span> <RequiredMark /></span>
+            </span>
+          </CheckRow>
+          <CheckRow checked={notifyOptIn} onChange={setNotifyOptIn}>
+            <span className="flex items-center gap-1.5">
+              <Bell size={14} className="text-teal-600 shrink-0" />
+              <span>אשמח לקבל תזכורות והתראות על התורים ב-SMS ובאימייל <span className="text-slate-400">(רשות)</span></span>
+            </span>
+          </CheckRow>
+        </div>
+      </Card>
+
+      <Button size="lg" className="w-full" disabled={!canSubmit} onClick={onSubmit}>
+        המשך לקביעת תור <ArrowRight size={18} />
+      </Button>
+    </div>
+  )
+}
+
+// A labeled checkbox row — the whole row is clickable.
+function CheckRow({ checked, onChange, children }) {
+  return (
+    <label className="flex items-start gap-2.5 cursor-pointer text-sm text-slate-600">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 accent-teal-600 focus:ring-teal-500"
+      />
+      <span className="leading-relaxed">{children}</span>
+    </label>
   )
 }
 
@@ -508,101 +608,81 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
   )
 }
 
-function UnsurePath({ isNew, name, setName, phone, setPhone, birthYear, setBirthYear, gender, setGender, email, setEmail, contactValid, onBack, onProceed, onSendToClinic }) {
-  const { therapistById, treatmentById, classifyAsync } = useData()
+// "Not sure which treatment?" — a clean inquiry form handed straight to the secretary
+// (no AI). The patient picks a subject (a clinic service, or אדמיניסטרציה / אחר) and may
+// add a short free-text detail; on submit the parent persists it and shows a success banner.
+// Portal to <body>: the page wrapper keeps a persistent transform (animate-fade), which
+// would otherwise capture this fixed overlay and push the centered card off-screen.
+function InquiryDialog({ subjects, onClose, onSubmit }) {
+  const [subject, setSubject] = useState('')
   const [description, setDescription] = useState('')
-  const [result, setResult] = useState(null)
-  const [analyzing, setAnalyzing] = useState(false)
-  const canAnalyze = meaningfulDescription(description)
+  const canSubmit = subject.trim().length > 0
 
-  async function analyze(e) {
+  function handleSubmit(e) {
     e.preventDefault()
-    if (!canAnalyze || analyzing) return
-    // Await the server classifier (Claude when configured) so the urgent
-    // safety-net gate uses the real AI; classifyAsync falls back to the local
-    // classifier if the call fails, and returns real DB UUIDs either way.
-    setAnalyzing(true)
-    try {
-      setResult(await classifyAsync({ description: description.trim() }))
-    } finally {
-      setAnalyzing(false)
-    }
+    if (!canSubmit) return
+    onSubmit(subject, description.trim())
   }
 
-  return (
-    <form onSubmit={analyze} className="animate-fade space-y-4 max-w-xl mx-auto">
-      <button type="button" onClick={onBack} className="text-sm text-teal-600 flex items-center gap-1"><ChevronLeft size={16} /> חזרה לבחירה ידנית</button>
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">לא בטוח/ה מה מתאים?</h1>
-        <p className="text-slate-500 text-sm mt-0.5">תארו מה מטריד ותקבלו המלצה חכמה</p>
-      </div>
-      <div>
-        <label className="text-sm font-medium text-slate-700">מה מטריד אותך? <span className="text-[11px] text-slate-400">קלט ל-AI</span></label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-          rows={4}
-          placeholder="לדוגמה: כאב גב תחתון אחרי אימון, מקרין לרגל…"
-          className="mt-2 w-full rounded-xl ring-1 ring-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none leading-relaxed"
-        />
-        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Sparkles size={12} /> ה-AI ימליץ על טיפול ומטפל, ויזהה מקרים שעדיף להפנות למרפאה</p>
-      </div>
-      {!result && (
-        <Button type="submit" size="lg" className="w-full" disabled={!canAnalyze || analyzing}>
-          {analyzing
-            ? <><Loader2 size={16} className="animate-spin" /> מנתח…</>
-            : <><Sparkles size={16} /> קבלת המלצה</>}
-        </Button>
-      )}
-
-      {result && (
-        <Card className="p-5 bg-teal-50/60 ring-teal-100">
-          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-3">
-            <Sparkles size={15} /> {result.lowConfidence ? 'צריך עוד פרטים' : 'ההמלצה שלנו'}
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-center items-start p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <Card className="w-full max-w-md p-0 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <span className="grid place-items-center h-10 w-10 rounded-xl bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={20} /></span>
+            <div>
+              <h3 className="font-bold text-slate-800 text-lg leading-tight">פנייה לצוות</h3>
+              <p className="text-sm text-slate-400">נחזור אליכם להתאמה אישית</p>
+            </div>
           </div>
-          {result.urgentFlag ? (
-            <>
-              <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
-              <Badge tone="red" className="mt-2"><Phone size={12} /> הופנה למרפאה</Badge>
-              <div className="mt-4">
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
-              </div>
-              <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'הפניה דחופה')}>
-                שליחת הפנייה למרפאה
-              </Button>
-            </>
-          ) : result.lowConfidence ? (
-            <>
-              {/* AI couldn't map the text to a treatment — no confident recommendation.
-                  Let the patient add detail and re-analyze, or hand off to a human. */}
-              <p className="text-sm text-slate-700 leading-relaxed">{result.rationale}</p>
-              <Button variant="soft" className="w-full mt-4" onClick={() => setResult(null)}>
-                <ChevronLeft size={16} /> נסו לתאר שוב
-              </Button>
-              <div className="mt-4 pt-4 border-t border-teal-100">
-                <p className="text-xs text-slate-500 mb-3">או השאירו פרטים ונחזור אליכם לתיאום מתאים:</p>
-                <ContactFields isNew={isNew} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
-                <Button className="w-full mt-4" disabled={!contactValid} onClick={() => onSendToClinic(description.trim(), 'פורטל')}>
-                  <Phone size={16} /> שליחת פנייה למרפאה
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <dl className="space-y-2 text-sm">
-                <Row label="טיפול מומלץ"><span className="font-medium text-slate-700">{treatmentById[result.treatmentId]?.name}</span></Row>
-                <Row label="מטפל/ת"><span className="font-medium text-slate-700 flex items-center gap-1"><Route size={13} /> {therapistById[result.routedTo]?.name}</span></Row>
-              </dl>
-              <p className="text-xs text-slate-500 mt-2">{result.rationale}</p>
-              <Button className="w-full mt-4" onClick={() => onProceed(result.routedTo, result.treatmentId)}>
-                המשך להזמנה <ArrowRight size={16} />
-              </Button>
-            </>
-          )}
-        </Card>
-      )}
-    </form>
+          <button onClick={onClose} aria-label="סגירה" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-5 py-4 overflow-y-auto scroll-thin space-y-4">
+          {/* Subject — required */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5 mb-1.5">
+              נושא הפנייה <RequiredMark />
+            </label>
+            <select
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              required
+              aria-required="true"
+              className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm text-slate-700 bg-white outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="" disabled>בחרו נושא…</option>
+              {subjects.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Free-text detail — optional */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+              פירוט קצר <span className="text-[11px] text-slate-400">(רשות)</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              className="w-full rounded-xl ring-1 ring-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none leading-relaxed"
+            />
+          </div>
+        </form>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>ביטול</Button>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            <Send size={16} /> שליחת פנייה לצוות
+          </Button>
+        </div>
+      </Card>
+    </div>,
+    document.body,
   )
 }
 

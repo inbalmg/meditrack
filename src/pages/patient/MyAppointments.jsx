@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarHeart, Bell, FilePlus2, Clock, Check, X, Hourglass, MapPin } from 'lucide-react'
+import { CalendarHeart, Bell, FilePlus2, Clock, Check, X, Hourglass, MapPin, Users } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Empty } from '../../components/ui.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
@@ -13,14 +13,75 @@ const REQ_STATUS = {
   נדחה: { tone: 'red', icon: X, text: 'נדחתה — ניתן לשלוח בקשה חדשה' },
 }
 
+// Patient-facing status view. Human inquiries have their own team-handling lifecycle:
+//   ממתין        → awaiting the team
+//   הומר למשימה  → the team is handling it (converted to an internal task, still active)
+//   סגור         → handled/done (directly closed, or the linked task was completed)
+// Booking requests fall back to REQ_STATUS.
+function statusView(r) {
+  if (r.kind === 'inquiry') {
+    if (r.status === 'הומר למשימה') return { tone: 'blue', icon: Users, text: 'בטיפול הצוות' }
+    if (r.status === 'סגור') return { tone: 'green', icon: Check, text: 'טופל' }
+    return { tone: 'amber', icon: Hourglass, text: 'ממתינה לטיפול הצוות' }
+  }
+  return REQ_STATUS[r.status]
+}
+
+// Status banners are shown only while the request was updated within this window;
+// a rejected request older than this auto-expires from the dashboard.
+const RECENT_DAYS = 7
+const RECENT_MS = RECENT_DAYS * 24 * 60 * 60 * 1000
+// A handled inquiry ("טופל") lingers on the dashboard for 48h after completion, then
+// drops off the active feed. Anchored on updatedAt (= when it was closed/completed).
+const HANDLED_RETENTION_MS = 48 * 60 * 60 * 1000
+
+// Manually-dismissed rejected banners persist locally (per browser), so a patient who
+// closed a banner doesn't see it again on reload.
+const DISMISS_KEY = 'meditrack:dismissedRequests'
+function loadDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISS_KEY) || '[]')) } catch { return new Set() }
+}
+
 export default function MyAppointments() {
   const { requests, appointments, currentPatientId, therapistById, settings, cancelAppointment } = useData()
 
   // Appointment pending cancel confirmation (null = no dialog open).
   const [confirmCancel, setConfirmCancel] = useState(null)
+  // Locally-dismissed request banners (rejected requests the patient closed).
+  const [dismissed, setDismissed] = useState(loadDismissed)
+  function dismissRequest(id) {
+    setDismissed((prev) => {
+      const next = new Set(prev).add(id)
+      try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
 
   const myRequests = requests.filter((r) => r.patientId === currentPatientId)
-  const lastRequest = myRequests[0] // newest first
+  // Active banners, newest change first. Two lifecycles:
+  //  • Inquiries: pending / in-progress ('הומר למשימה') stay visible continuously while
+  //    the team works them; handled ('סגור') lingers 48h post-completion, then drops off.
+  //  • Booking requests: pending or recently-rejected within 7 days, dismissible.
+  // Approved booking requests surface as an upcoming appointment instead.
+  const activeRequests = useMemo(() => {
+    const now = Date.now()
+    const bookingCutoff = now - RECENT_MS
+    return myRequests
+      .filter((r) => {
+        if (r.kind === 'inquiry') {
+          if (r.status === 'ממתין' || r.status === 'הומר למשימה') return true
+          if (r.status === 'סגור') {
+            const anchor = r.updatedAt?.getTime() ?? r.createdAt.getTime()
+            return now - anchor < HANDLED_RETENTION_MS
+          }
+          return false
+        }
+        return (r.status === 'ממתין' || r.status === 'נדחה') &&
+          (r.updatedAt?.getTime() ?? r.createdAt.getTime()) >= bookingCutoff &&
+          !dismissed.has(r.id)
+      })
+      .sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0))
+  }, [myRequests, dismissed])
   const upcoming = useMemo(
     () =>
       appointments
@@ -31,22 +92,52 @@ export default function MyAppointments() {
 
   return (
     <div className="animate-fade space-y-5">
-      {/* Last request status */}
-      {lastRequest && (
+      {/* Request status banners — pending / recently-rejected, dismissible */}
+      {activeRequests.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-slate-500 mb-2 px-1">סטטוס הבקשה האחרונה</h2>
-          <Card className="p-4">
-            <div className="flex items-start gap-3">
-              <StatusIcon status={lastRequest.status} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-slate-700 leading-relaxed">"{lastRequest.description}"</p>
-                <p className="text-xs text-slate-400 mt-1">{relativeFromNow(lastRequest.createdAt)}</p>
-                <Badge tone={REQ_STATUS[lastRequest.status].tone} className="mt-2">
-                  {REQ_STATUS[lastRequest.status].text}
-                </Badge>
-              </div>
-            </div>
-          </Card>
+          <h2 className="text-sm font-semibold text-slate-500 mb-2 px-1">סטטוס הבקשות שלך</h2>
+          <div className="space-y-3">
+            {activeRequests.map((r) => {
+              const view = statusView(r)
+              const isRejected = r.status === 'נדחה'
+              return (
+                <Card key={r.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    <StatusIcon view={view} />
+                    <div className="flex-1 min-w-0">
+                      {r.kind === 'inquiry' ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-800">פנייה: {r.subject}</p>
+                          {r.description?.trim() && (
+                            <p className="text-sm text-slate-700 leading-relaxed mt-0.5">"{r.description}"</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-700 leading-relaxed">"{r.description}"</p>
+                      )}
+                      <p className="text-xs text-slate-400 mt-1">{relativeFromNow(r.createdAt)}</p>
+                      <Badge tone={view.tone} className="mt-2">{view.text}</Badge>
+                      {isRejected && r.rejectionReason && (
+                        <div className="mt-2 rounded-lg bg-red-50 ring-1 ring-red-100 px-3 py-2 text-sm text-red-800 leading-relaxed">
+                          <span className="font-medium">סיבת הדחייה: </span>{r.rejectionReason}
+                        </div>
+                      )}
+                    </div>
+                    {isRejected && (
+                      <button
+                        onClick={() => dismissRequest(r.id)}
+                        title="הסתרת ההודעה"
+                        aria-label="הסתרת ההודעה"
+                        className="text-slate-400 hover:text-slate-600 p-1 -m-1 shrink-0 transition"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -133,8 +224,13 @@ export default function MyAppointments() {
   )
 }
 
-function StatusIcon({ status }) {
-  const { tone, icon: Icon } = REQ_STATUS[status]
-  const bg = { amber: 'bg-amber-100 text-amber-600', green: 'bg-emerald-100 text-emerald-600', red: 'bg-red-100 text-red-600' }[tone]
+function StatusIcon({ view }) {
+  const { tone, icon: Icon } = view
+  const bg = {
+    amber: 'bg-amber-100 text-amber-600',
+    green: 'bg-emerald-100 text-emerald-600',
+    red: 'bg-red-100 text-red-600',
+    blue: 'bg-blue-100 text-blue-600',
+  }[tone]
   return <span className={clsx('grid place-items-center h-9 w-9 rounded-xl shrink-0', bg)}><Icon size={18} /></span>
 }

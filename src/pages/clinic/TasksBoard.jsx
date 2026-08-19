@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ListChecks, Plus, Zap, User, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive } from 'lucide-react'
+import { ListChecks, Plus, Zap, User, Users, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
 import UnresolvedAppointments from '../../components/UnresolvedAppointments.jsx'
@@ -17,6 +17,11 @@ const COLUMNS = [
 ]
 
 const NEXT = { פתוח: 'בטיפול', בטיפול: 'הושלם' }
+
+// A task with no specific assignee (assignee_id null) belongs to the office as a whole —
+// e.g. the default target when a portal inquiry is converted to a task. Shown as this
+// labeled chip and offered as the first option in the assignee picker.
+const GENERAL_ASSIGNEE_LABEL = 'ללא שיוך (צוות המשרד / כללי)'
 
 // Recency windows for the "הושלם" column. The board mirror only holds completed tasks
 // from the last 15 days (older ones live in the Task Archive drawer), so these windows
@@ -182,11 +187,13 @@ export default function TasksBoard() {
                         {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
                         <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
                           <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
-                          {assignee && (
+                          {assignee ? (
                             <span className="flex items-center gap-1">
                               <Avatar initials={assignee.initials} color={assignee.color} size={18} />
                               {assignee.name}
                             </span>
+                          ) : (
+                            <span className="flex items-center gap-1"><Users size={12} /> {GENERAL_ASSIGNEE_LABEL}</span>
                           )}
                         </div>
                         {NEXT[t.status] && (
@@ -227,7 +234,8 @@ export default function TasksBoard() {
 function TaskForm({ assignees, initial, onSubmit, onCancel }) {
   const isEdit = !!initial
   const [title, setTitle] = useState(initial?.title ?? '')
-  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? assignees[0]?.id ?? '')
+  // Default new tasks to the general/office pool (''); edits keep the task's assignee.
+  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
   const [due, setDue] = useState(toLocalInput(initial?.due instanceof Date ? initial.due : new Date()))
 
@@ -250,6 +258,7 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-medium text-slate-500">אחראי/ת</span>
           <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={clsx(inputCls, 'bg-white')}>
+            <option value="">{GENERAL_ASSIGNEE_LABEL}</option>
             <optgroup label="מטפלים">
               {therapists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </optgroup>

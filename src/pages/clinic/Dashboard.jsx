@@ -76,17 +76,21 @@ export default function Dashboard() {
 
   const now = useNow()
 
-  // Requests = exceptions awaiting approval, newest first.
+  // The queue = open work needing the desk, newest first: any request still 'ממתין'
+  // (booking requests awaiting approval + inquiries awaiting resolution). Resolving an
+  // inquiry (direct close 'סגור' or convert-to-task 'הומר למשימה') moves it out of 'ממתין'
+  // so it drops off the board automatically.
   const pending = useMemo(
     () => requests.filter((r) => r.status === 'ממתין').sort((a, b) => b.createdAt - a.createdAt),
     [requests],
   )
   const unreadCount = pending.filter((r) => !openedIds.has(r.id)).length
-  const urgentCount = pending.filter((r) => r.ai.urgentFlag).length
+  // Urgent applies to AI-classified booking requests only; inquiries have no ai payload.
+  const urgentCount = pending.filter((r) => r.ai?.urgentFlag).length
   // Apply the active filter chips (new / urgent) to the queue.
   let filteredPending = pending
   if (unreadFilter) filteredPending = filteredPending.filter((r) => unreadFilter.has(r.id))
-  if (urgentFilter) filteredPending = filteredPending.filter((r) => r.ai.urgentFlag)
+  if (urgentFilter) filteredPending = filteredPending.filter((r) => r.ai?.urgentFlag)
   // The table shows the newest 5; a "show all" toggle reveals the rest.
   const REQUESTS_PREVIEW = 5
   const displayedPending = showAllRequests ? filteredPending : filteredPending.slice(0, REQUESTS_PREVIEW)
