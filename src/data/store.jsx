@@ -57,9 +57,37 @@ const mapTask = (r) => ({
   due: r.due ? new Date(r.due) : new Date(), status: r.status, source: r.source, note: r.note,
   completedAt: r.completed_at ? new Date(r.completed_at) : undefined,
 })
+// Requests carry a classification (`ai`) for booking rows only; when the DB row is missing
+// it (older rows), fall back to the passed classifier. Shared by hydrate + Realtime so both
+// produce the identical app shape.
+const mapRequest = (r, aiFor) => {
+  const kind = r.kind ?? 'booking'
+  return {
+    id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
+    updatedAt: new Date(r.updated_at ?? r.created_at),
+    description: r.description, preferredTherapistId: r.preferred_therapist_id,
+    visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
+    source: r.source, status: r.status, rejectionReason: r.rejection_reason ?? null,
+    kind, subject: r.subject ?? null, staffNote: r.staff_note ?? null,
+    convertedTaskId: r.converted_task_id ?? null,
+    // Human inquiries carry no AI payload; only booking requests get classified.
+    ai: kind === 'inquiry' ? null : (r.ai ?? aiFor({ description: r.description, preferredTherapistId: r.preferred_therapist_id, visitTypeHint: r.visit_type_hint })),
+  }
+}
+
+// Id-idempotent mirror patches for Realtime. Realtime echoes back THIS tab's own optimistic
+// writes (same client-generated UUID), so we replace-by-id instead of blind-prepend — an
+// echo becomes a no-op, a genuine remote change is a real update, and no duplicate row ever
+// appears. `prepend` controls where a truly-new row lands (requests/tasks show newest-first).
+const upsertById = (row, prepend = false) => (list) => {
+  const i = list.findIndex((x) => x.id === row.id)
+  if (i === -1) return prepend ? [row, ...list] : [...list, row]
+  const next = list.slice(); next[i] = row; return next
+}
+const removeById = (id) => (list) => list.filter((x) => x.id !== id)
 
 export function DataProvider({ children }) {
-  const { status, role, clinicId, userId } = useSession()
+  const { status, role, clinicId, userId, session } = useSession()
 
   const [requests, setRequests] = useState([])
   const [appointments, setAppointments] = useState([])
@@ -75,6 +103,10 @@ export function DataProvider({ children }) {
   // store level because approving removes the request, unmounting the row that triggered it.
   const [bookingConfirmation, setBookingConfirmation] = useState(null)
   const [ready, setReady] = useState(false)
+  // Transient toasts (e.g. a request arriving live over Realtime). Rendered by <Toaster/>
+  // in ClinicLayout; each auto-dismisses. dismissToast removes one by id.
+  const [toasts, setToasts] = useState([])
+  const dismissToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id))
 
   // A brand-new patient creates their own patients row on first self-booking; the
   // appointment/request insert that immediately follows has an RLS check that resolves
@@ -82,6 +114,15 @@ export function DataProvider({ children }) {
   // the patient insert. This holds the in-flight self-registration write; afterPatientWrite
   // chains the dependent insert after it commits. Resolved (no wait) for existing patients.
   const pendingPatientWrite = useRef(Promise.resolve())
+  // Latest component-level aiFor, so the Realtime handler (created once at login) always
+  // classifies with the current treatments state instead of a stale login-time snapshot.
+  const aiForRef = useRef(null)
+  // Latest requests, so the Realtime handler can tell a genuinely-new remote request from
+  // the echo of THIS tab's own optimistic insert (present ⇒ echo ⇒ no toast).
+  const requestsRef = useRef(requests)
+  requestsRef.current = requests
+  // Latest patient lookup, for naming the patient in a live-request toast.
+  const patientByIdRef = useRef({})
   function afterPatientWrite(build) {
     const prior = pendingPatientWrite.current
     pendingPatientWrite.current = Promise.resolve()
@@ -96,78 +137,142 @@ export function DataProvider({ children }) {
       setReady(false)
       setRequests([]); setAppointments([]); setTasks([]); setPatients([])
       setTherapists([]); setTreatments([]); setStaff([]); setCurrentPatient(null)
+      setToasts([])
       return
     }
     let active = true
-    ;(async () => {
-      setReady(false)
-      // Board window: every non-completed task + only completed tasks finished within
-      // the last MAIN_BOARD_DONE_DAYS. The older completed backlog is fetched lazily by
-      // the archive drawer (fetchArchivedTasks) — it never enters this mirror.
-      const doneCutoff = subDays(new Date(), MAIN_BOARD_DONE_DAYS).toISOString()
-      const [th, tr, tp, pt, ap, rq, tk, st, cl] = await Promise.all([
-        supabase.from('therapists').select('*'),
-        supabase.from('treatments').select('*').eq('active', true),
-        supabase.from('treatment_providers').select('treatment_id,therapist_id'),
-        supabase.from('patients').select('*'),
-        supabase.from('appointments').select('*'),
-        supabase.from('requests').select('*'),
-        supabase.from('tasks').select('*').or(`status.neq.הושלם,completed_at.gte.${doneCutoff}`),
-        supabase.from('staff').select('*'),
-        supabase.from('clinics').select('settings').maybeSingle(),
-      ])
-      if (!active) return
+    let refetching = false
 
-      const providersByTreatment = new Map()
-      for (const p of tp.data ?? []) {
-        const list = providersByTreatment.get(p.treatment_id) ?? []
-        list.push(p.therapist_id)
-        providersByTreatment.set(p.treatment_id, list)
-      }
-      const mappedTreatments = (tr.data ?? []).map((r) => ({
-        id: r.id, name: r.name, durationMin: r.duration_min,
-        therapistIds: providersByTreatment.get(r.id) ?? [],
-      }))
-      const firstProvider = (treatmentId) =>
-        mappedTreatments.find((t) => t.id === treatmentId)?.therapistIds?.[0] ?? null
-      // UUID-correct AI: reuse the local classifier for urgency/tags, remap ids to the DB.
-      const aiFor = (input) => {
-        const base = classifyRequest(input)
-        const t = mappedTreatments.find((x) => x.name === base.visitType)
-        const treatmentId = t?.id ?? null
-        return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProvider(treatmentId) }
-      }
+    // Full hydrate — runs on login and is re-run on socket reconnect / tab refocus (the
+    // fallback below). Idempotent: every mirror patch here and in the live handlers is
+    // by-id, so a refetch that overlaps live events converges without dupes.
+    async function hydrate() {
+      if (!active || refetching) return
+      refetching = true
+      try {
+        // Board window: every non-completed task + only completed tasks finished within
+        // the last MAIN_BOARD_DONE_DAYS. The older completed backlog is fetched lazily by
+        // the archive drawer (fetchArchivedTasks) — it never enters this mirror.
+        const doneCutoff = subDays(new Date(), MAIN_BOARD_DONE_DAYS).toISOString()
+        const [th, tr, tp, pt, ap, rq, tk, st, cl] = await Promise.all([
+          supabase.from('therapists').select('*'),
+          supabase.from('treatments').select('*').eq('active', true),
+          supabase.from('treatment_providers').select('treatment_id,therapist_id'),
+          supabase.from('patients').select('*'),
+          supabase.from('appointments').select('*'),
+          supabase.from('requests').select('*'),
+          supabase.from('tasks').select('*').or(`status.neq.הושלם,completed_at.gte.${doneCutoff}`),
+          supabase.from('staff').select('*'),
+          supabase.from('clinics').select('settings').maybeSingle(),
+        ])
+        if (!active) return
 
-      setTherapists((th.data ?? []).map(mapTherapist))
-      setTreatments(mappedTreatments)
-      setPatients((pt.data ?? []).map(mapPatient))
-      setAppointments((ap.data ?? []).map(mapAppt))
-      setTasks((tk.data ?? []).map(mapTask))
-      setStaff((st.data ?? []).map(mapStaff))
-      setSettings(cl.data?.settings ?? DEFAULT_SETTINGS)
-      setRequests((rq.data ?? []).map((r) => {
-        const kind = r.kind ?? 'booking'
-        return {
-          id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
-          updatedAt: new Date(r.updated_at ?? r.created_at),
-          description: r.description, preferredTherapistId: r.preferred_therapist_id,
-          visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
-          source: r.source, status: r.status, rejectionReason: r.rejection_reason ?? null,
-          kind, subject: r.subject ?? null, staffNote: r.staff_note ?? null,
-          convertedTaskId: r.converted_task_id ?? null,
-          // Human inquiries carry no AI payload; only booking requests get classified.
-          ai: kind === 'inquiry' ? null : (r.ai ?? aiFor({ description: r.description, preferredTherapistId: r.preferred_therapist_id, visitTypeHint: r.visit_type_hint })),
+        const providersByTreatment = new Map()
+        for (const p of tp.data ?? []) {
+          const list = providersByTreatment.get(p.treatment_id) ?? []
+          list.push(p.therapist_id)
+          providersByTreatment.set(p.treatment_id, list)
         }
-      }))
-      // A patient sees only their own patient row (RLS) — that's their currentPatientId.
-      setCurrentPatient(role?.isPatient ? ((pt.data ?? [])[0]?.id ?? null) : null)
-      setReady(true)
-    })()
-    return () => { active = false }
-  }, [status, role?.id])
+        const mappedTreatments = (tr.data ?? []).map((r) => ({
+          id: r.id, name: r.name, durationMin: r.duration_min,
+          therapistIds: providersByTreatment.get(r.id) ?? [],
+        }))
+        const firstProvider = (treatmentId) =>
+          mappedTreatments.find((t) => t.id === treatmentId)?.therapistIds?.[0] ?? null
+        // UUID-correct AI: reuse the local classifier for urgency/tags, remap ids to the DB.
+        const aiFor = (input) => {
+          const base = classifyRequest(input)
+          const t = mappedTreatments.find((x) => x.name === base.visitType)
+          const treatmentId = t?.id ?? null
+          return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProvider(treatmentId) }
+        }
+
+        setTherapists((th.data ?? []).map(mapTherapist))
+        setTreatments(mappedTreatments)
+        setPatients((pt.data ?? []).map(mapPatient))
+        setAppointments((ap.data ?? []).map(mapAppt))
+        setTasks((tk.data ?? []).map(mapTask))
+        setStaff((st.data ?? []).map(mapStaff))
+        setSettings(cl.data?.settings ?? DEFAULT_SETTINGS)
+        setRequests((rq.data ?? []).map((r) => mapRequest(r, aiFor)))
+        // A patient sees only their own patient row (RLS) — that's their currentPatientId.
+        setCurrentPatient(role?.isPatient ? ((pt.data ?? [])[0]?.id ?? null) : null)
+        setReady(true)
+      } finally {
+        refetching = false
+      }
+    }
+
+    setReady(false)
+    hydrate()
+
+    // --- Live sync: keep the mirror current across devices/roles without a refresh. ---
+    // RLS is the gate — a client only receives changes to rows it may SELECT (patient → own
+    // rows, therapist → own/treated, secretary/manager → their clinic). The clinic_id filter
+    // just trims socket traffic. See migration 30 (supabase_realtime publication).
+    const doneCutoffMs = subDays(new Date(), MAIN_BOARD_DONE_DAYS).getTime()
+    const applyRequest = (p) => {
+      if (p.eventType === 'DELETE') { setRequests(removeById(p.old.id)); return }
+      const req = mapRequest(p.new, aiForRef.current ?? (() => null))
+      // Toast the clinic when a NEW pending request lands live — but only for staff who work
+      // the queue, only on a genuinely-new remote row (not the echo of our own optimistic
+      // insert, which is already in the mirror), and only while pending.
+      const isNewRemote = p.eventType === 'INSERT' && !requestsRef.current.some((r) => r.id === req.id)
+      if (isNewRemote && req.status === 'ממתין' && role?.canApprove) {
+        const name = patientByIdRef.current[req.patientId]?.name
+        setToasts((prev) => [...prev, {
+          id: uuid(),
+          kind: req.kind === 'inquiry' ? 'inquiry' : 'request',
+          title: req.kind === 'inquiry' ? 'פנייה חדשה מהפורטל' : 'בקשת תור חדשה',
+          name: name ?? null,
+          to: '/clinic',
+        }])
+      }
+      setRequests(upsertById(req, true))
+    }
+    const applyAppointment = (p) => {
+      if (p.eventType === 'DELETE') { setAppointments(removeById(p.old.id)); return }
+      setAppointments(upsertById(mapAppt(p.new)))
+    }
+    const applyTask = (p) => {
+      if (p.eventType === 'DELETE') { setTasks(removeById(p.old.id)); return }
+      const row = mapTask(p.new)
+      // Keep the tasks mirror bounded: a completed task older than the board window belongs
+      // to the archive, not the board — drop it rather than upserting it in.
+      const stale = row.status === 'הושלם' && row.completedAt && row.completedAt.getTime() < doneCutoffMs
+      setTasks(stale ? removeById(row.id) : upsertById(row))
+    }
+
+    // Carry the authenticated JWT onto the Realtime socket so RLS-scoped postgres_changes
+    // authorize (supabase-js also re-syncs this on token refresh).
+    supabase.realtime.setAuth(session?.access_token ?? null)
+    let wasDisconnected = false
+    const channel = supabase
+      .channel(`clinic:${clinicId ?? 'none'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `clinic_id=eq.${clinicId}` }, applyRequest)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `clinic_id=eq.${clinicId}` }, applyAppointment)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `clinic_id=eq.${clinicId}` }, applyTask)
+      .subscribe((s) => {
+        // Fallback A — a dropped/re-established socket may have missed events; resync once.
+        if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') wasDisconnected = true
+        else if (s === 'SUBSCRIBED' && wasDisconnected) { wasDisconnected = false; hydrate() }
+      })
+
+    // Fallback B — laptop sleep / long backgrounding can kill the socket silently; resync
+    // when the tab becomes visible again (a no-op refetch is cheap and by-id idempotent).
+    const onVisible = () => { if (document.visibilityState === 'visible') hydrate() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVisible)
+      supabase.removeChannel(channel)
+    }
+  }, [status, role?.id, clinicId])
 
   // --- Lookups (unchanged) ---
   const patientById = useMemo(() => Object.fromEntries(patients.map((p) => [p.id, p])), [patients])
+  patientByIdRef.current = patientById
   // therapistById is over ALL therapists (incl. archived) so historical appointments
   // still render name/color. activeTherapists is the list for booking / calendar /
   // provider pickers — archived (active === false) providers are hidden there.
@@ -212,6 +317,7 @@ export function DataProvider({ children }) {
     const treatmentId = t?.id ?? null
     return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProviderFor(treatmentId) }
   }
+  aiForRef.current = aiFor
 
   // "Not sure?" recommendation — ask the server (Claude when configured) so the
   // urgent safety-net gate and the treatment suggestion use the real classifier,
@@ -773,6 +879,7 @@ export function DataProvider({ children }) {
     addStaff, updateStaff, removeStaff, addPatient, updatePatient, devResetOnboarding,
     bookAppointment, cancelAppointment, submitRequest, submitInquiry, updateInquiry, updateRequestNote, convertInquiryToTask, approveRequest, rejectRequest,
     bookingConfirmation, clearBookingConfirmation,
+    toasts, dismissToast,
     setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
     fetchArchivedTasks, restoreTask,
   }

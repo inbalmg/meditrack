@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { Sparkles, TrendingUp, TrendingDown, Gauge, UserX, PieChart, AlertTriangle, ListChecks, Clock, Users, CheckCircle2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Sparkles, TrendingUp, TrendingDown, Gauge, UserX, PieChart, AlertTriangle, ListChecks, Clock, Users, CheckCircle2, Filter } from 'lucide-react'
 import { startOfDay, subDays, addDays } from 'date-fns'
 import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Kpi, Avatar, Empty } from '../../components/ui.jsx'
@@ -20,45 +20,71 @@ function formatDuration(ms) {
 }
 
 export default function Reports() {
-  const { appointments, tasks, assignees, assigneeById } = useData()
+  const { appointments, tasks, assignees, assigneeById, activeTherapists } = useData()
   const now = useNow()
 
-  // Occupancy per day (Sun–Thu), capacity assumed 12 slots/day.
+  // Manager's one active control: scope the appointment analytics (KPIs + charts
+  // below) to a single therapist, or 'all' for the whole clinic. The AI summary, the
+  // data-integrity notice and the tasks section stay clinic-wide regardless.
+  const [therapistFilter, setTherapistFilter] = useState('all')
+  const scopedAppointments = useMemo(
+    () => (therapistFilter === 'all'
+      ? appointments
+      : appointments.filter((a) => a.therapistId === therapistFilter)),
+    [appointments, therapistFilter],
+  )
+
+  // Clinic capacity is 12 slots/day; when scoped to one therapist, divide by the
+  // active-therapist count so the occupancy % stays meaningful (not artificially low).
   const CAPACITY = 12
+  const capacity = therapistFilter === 'all'
+    ? CAPACITY
+    : Math.max(1, Math.round(CAPACITY / (activeTherapists.length || 1)))
+
+  // Occupancy per day (Sun–Thu) for the scoped appointments.
   const perDay = useMemo(() => {
     const counts = [0, 0, 0, 0, 0]
-    appointments.forEach((a) => {
+    scopedAppointments.forEach((a) => {
       const d = a.start.getDay()
       if (d >= 0 && d <= 4) counts[d] += 1
     })
     return counts
-  }, [appointments])
+  }, [scopedAppointments])
 
   const totalBooked = perDay.reduce((s, n) => s + n, 0)
-  const occupancy = Math.round((totalBooked / (CAPACITY * 5)) * 100)
+  const occupancy = Math.round((totalBooked / (capacity * 5)) * 100)
 
-  const noShows = appointments.filter((a) => a.status === 'לא הגיע').length
-  const completedOrPast = appointments.filter((a) => ['לא הגיע', 'הסתיים', 'הגיע'].includes(a.status)).length
+  const noShows = scopedAppointments.filter((a) => a.status === 'לא הגיע').length
+  const completedOrPast = scopedAppointments.filter((a) => ['לא הגיע', 'הסתיים', 'הגיע'].includes(a.status)).length
   const noShowRate = completedOrPast ? Math.round((noShows / completedOrPast) * 100) : 0
 
-  // Past appointments left as 'קבוע' are excluded from the no-show base above, so
-  // while any remain the rate is provisional — surface a count that nudges the
-  // manager to resolve them (done from the clinic Dashboard).
-  const unresolvedPast = appointments.filter((a) => isUnresolvedPast(a)).length
+  // Clinic-wide figures for the AI summary + the data-integrity notice — always the
+  // whole clinic, independent of the therapist filter. Past appointments left as 'קבוע'
+  // are excluded from the no-show base, so while any remain the rate is provisional; the
+  // unresolved count nudges the manager to resolve them (from the clinic Dashboard).
+  const clinicStats = useMemo(() => {
+    const total = appointments.filter((a) => { const d = a.start.getDay(); return d >= 0 && d <= 4 }).length
+    const occ = Math.round((total / (CAPACITY * 5)) * 100)
+    const ns = appointments.filter((a) => a.status === 'לא הגיע').length
+    const base = appointments.filter((a) => ['לא הגיע', 'הסתיים', 'הגיע'].includes(a.status)).length
+    const nsRate = base ? Math.round((ns / base) * 100) : 0
+    const unresolved = appointments.filter((a) => isUnresolvedPast(a)).length
+    return { total, occ, nsRate, unresolved }
+  }, [appointments])
 
   const typeBreakdown = useMemo(() => {
     const map = Object.fromEntries(VISIT_TYPES.map((v) => [v, 0]))
-    appointments.forEach((a) => {
+    scopedAppointments.forEach((a) => {
       map[a.visitType] = (map[a.visitType] || 0) + 1
     })
-    const total = appointments.length || 1
+    const total = scopedAppointments.length || 1
     return VISIT_TYPES.map((v, i) => ({
       label: v,
       count: map[v],
       pct: Math.round((map[v] / total) * 100),
       color: TYPE_COLORS[i % TYPE_COLORS.length],
     }))
-  }, [appointments])
+  }, [scopedAppointments])
 
   // 4-week no-show trend for the demo (declining = good). The final point is
   // the live computed rate so the graph and the KPI stay in sync.
@@ -126,17 +152,35 @@ export default function Reports() {
           <Sparkles size={18} /> סיכום שבועי חכם (AI)
         </div>
         <p className="text-slate-700 leading-relaxed">
-          השבוע נקבעו <b>{totalBooked}</b> תורים בתפוסה של <b>{occupancy}%</b>. שיעור אי-ההגעות ירד ל־
-          <b> {noShowRate}%</b> — מגמת שיפור מתמשכת בזכות התזכורות האוטומטיות. עומס השיא הוא בימי
+          השבוע נקבעו <b>{clinicStats.total}</b> תורים בתפוסה של <b>{clinicStats.occ}%</b>. שיעור אי-ההגעות ירד ל־
+          <b> {clinicStats.nsRate}%</b> — מגמת שיפור מתמשכת בזכות התזכורות האוטומטיות. עומס השיא הוא בימי
           ראשון–שני בבוקר. <b>המלצה:</b> להוסיף משבצת בוקר אצל ד״ר אבני בימי ראשון ולהפעיל תזכורת
           נוספת 3 שעות לפני התור לבקשות שסווגו כ״דחוף״.
-          {unresolvedPast > 0 && (
-            <> <b>שים/י לב:</b> {unresolvedPast} תורים מהעבר טרם סומנו — שיעור אי-ההגעות חלקי עד לעדכונם.</>
+          {clinicStats.unresolved > 0 && (
+            <> <b>שים/י לב:</b> {clinicStats.unresolved} תורים מהעבר טרם סומנו — שיעור אי-ההגעות חלקי עד לעדכונם.</>
           )}
         </p>
       </Card>
 
-      {/* KPIs */}
+      {/* Therapist filter — scopes the appointment analytics below (KPIs + charts).
+          The AI summary above, the data-integrity notice and the tasks section stay clinic-wide. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="flex items-center gap-1.5 text-sm text-slate-500">
+          <Filter size={15} className="text-slate-400" /> פילוח נתוני התורים לפי מטפל:
+        </span>
+        <select
+          value={therapistFilter}
+          onChange={(e) => setTherapistFilter(e.target.value)}
+          className="h-9 rounded-xl ring-1 ring-slate-300 bg-white px-3 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+        >
+          <option value="all">כל המטפלים</option>
+          {activeTherapists.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* KPIs — scoped to the selected therapist */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Kpi label="תפוסה שבועית" value={`${occupancy}%`} icon={Gauge} delta="+6%" deltaTone="green" />
         <Kpi label="שיעור אי-הגעות" value={`${noShowRate}%`} icon={UserX} delta="-3%" deltaTone="green" />
@@ -146,11 +190,11 @@ export default function Reports() {
 
       {/* Data-integrity notice: the no-show rate is provisional while past
           appointments remain unmarked. Resolution happens on the Dashboard. */}
-      {unresolvedPast > 0 && (
+      {clinicStats.unresolved > 0 && (
         <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle size={17} className="text-amber-600 shrink-0" />
           <span>
-            <b>{unresolvedPast}</b> תורים מהעבר טרם סומנו (הגיע/לא הגיע) — הנתונים חלקיים עד לעדכונם בלוח הבקרה.
+            <b>{clinicStats.unresolved}</b> תורים מהעבר טרם סומנו (הגיע/לא הגיע) — הנתונים חלקיים עד לעדכונם בלוח הבקרה.
           </span>
         </div>
       )}
@@ -158,11 +202,11 @@ export default function Reports() {
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Occupancy per day */}
         <Card>
-          <CardHeader title="תפוסה לפי יום" subtitle="מספר תורים · קיבולת 12 ליום" icon={Gauge} />
+          <CardHeader title="תפוסה לפי יום" subtitle={`מספר תורים · קיבולת ${capacity} ליום`} icon={Gauge} />
           <div className="px-5 pb-6 pt-2">
             <div className="flex items-end justify-between gap-3 h-48">
               {perDay.map((n, i) => {
-                const pct = Math.round((n / CAPACITY) * 100)
+                const pct = Math.round((n / capacity) * 100)
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-2">
                     <span className="text-xs font-medium text-slate-500 tabular-nums">{n}</span>

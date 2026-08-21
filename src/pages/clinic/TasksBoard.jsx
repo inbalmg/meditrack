@@ -94,6 +94,7 @@ export default function TasksBoard() {
 
       {editing && (
         <TaskForm
+          key={editing === 'new' ? 'new' : editing.id}
           assignees={assignees}
           initial={editing === 'new' ? null : editing}
           onCancel={() => setEditing(null)}
@@ -233,11 +234,20 @@ export default function TasksBoard() {
 // picker groups treatment providers and office staff (secretary/manager).
 function TaskForm({ assignees, initial, onSubmit, onCancel }) {
   const isEdit = !!initial
+  const initialDue = initial?.due instanceof Date ? initial.due : new Date()
   const [title, setTitle] = useState(initial?.title ?? '')
   // Default new tasks to the general/office pool (''); edits keep the task's assignee.
   const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
-  const [due, setDue] = useState(toLocalInput(initial?.due instanceof Date ? initial.due : new Date()))
+  const [due, setDue] = useState(toLocalInput(initialDue))
+
+  // Due date must not fall in the past. Floor the picker at the start of today; for an
+  // edit whose due already slipped into the past keep that value selectable so the task
+  // stays fully editable (the user can still push it forward to today/future).
+  const startToday = startOfDay(new Date())
+  const dueFloor = isEdit && initialDue < startToday ? startOfDay(initialDue) : startToday
+  const minDue = toLocalInput(dueFloor)
+  const duePast = !due || new Date(due) < dueFloor
 
   const therapists = assignees.filter((a) => a.kind === 'therapist')
   const office = assignees.filter((a) => a.kind !== 'therapist')
@@ -271,7 +281,16 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-medium text-slate-500">תאריך יעד</span>
-          <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} className={inputCls} />
+          <input
+            type="datetime-local"
+            value={due}
+            min={minDue}
+            onChange={(e) => setDue(e.target.value)}
+            className={clsx(inputCls, 'w-full sm:w-56 text-right')}
+          />
+          {duePast && (
+            <span className="text-[11px] text-red-500">יש לבחור את היום הנוכחי או תאריך עתידי</span>
+          )}
         </label>
         <input
           value={note}
@@ -282,7 +301,7 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
       </div>
       <div className="flex gap-2 mt-4">
         <Button
-          disabled={!title.trim()}
+          disabled={!title.trim() || duePast}
           onClick={() => onSubmit({ title: title.trim(), assigneeId, note: note.trim(), due: due ? new Date(due) : new Date() })}
         >
           {isEdit ? <><Check size={16} /> שמירה</> : <><Plus size={16} /> הוספה</>}

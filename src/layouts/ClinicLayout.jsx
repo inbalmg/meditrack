@@ -13,6 +13,7 @@ import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
 import BookingConfirmationModal from '../components/BookingConfirmationModal.jsx'
+import Toaster from '../components/Toaster.jsx'
 import { clsx } from '../components/clsx.js'
 import { CrossMark } from '../components/Logo.jsx'
 import logoUrl from '../assets/meditrack-logo.svg'
@@ -111,6 +112,8 @@ export default function ClinicLayout() {
 
       {/* Booking-success confirmation (shown after approving a phone/AI request). */}
       <BookingConfirmationModal />
+      {/* Live toasts (e.g. a new patient request arriving over Realtime). */}
+      <Toaster />
     </div>
   )
 }

@@ -117,7 +117,7 @@ export default function NewRequest() {
   }
 
   // "Not sure which treatment?" opens a lightweight inquiry modal that hands the
-  // question to the secretary (no AI). `inquirySent` shows a success banner afterward.
+  // question to the secretary (no AI). `inquirySent` shows a dedicated confirmation screen afterward.
   const [inquiryOpen, setInquiryOpen] = useState(false)
   const [inquirySent, setInquirySent] = useState(false)
   const [therapistId, setTherapistId] = useState(rescheduling?.therapistId ?? '')
@@ -233,6 +233,30 @@ export default function NewRequest() {
     )
   }
 
+  // ---------- Inquiry sent — dedicated confirmation screen ----------
+  // A sent inquiry gets its OWN full-screen confirmation (mirrors the booking-success
+  // screen), instead of a subtle banner tucked into the booking form — so the patient
+  // clearly registers that it went through.
+  if (inquirySent) {
+    return (
+      <div className="animate-fade space-y-4 max-w-xl mx-auto">
+        <Card className="p-6 text-center">
+          <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><CheckCircle2 size={32} /></span>
+          <h2 className="text-xl font-bold text-slate-800">הפנייה נשלחה בהצלחה!</h2>
+          <p className="text-slate-500 mt-1 text-sm">הצוות שלנו יחזור אליך בהקדם להתאמה אישית. אפשר לעקוב אחר הסטטוס במסך "התורים שלי".</p>
+        </Card>
+        <div className="flex flex-col gap-2">
+          <Button size="lg" className="w-full" onClick={() => navigate('/patient')}>
+            <CalendarCheck size={18} /> לתורים שלי
+          </Button>
+          <Button variant="soft" size="lg" className="w-full" onClick={() => setInquirySent(false)}>
+            <ArrowRight size={18} /> חזרה לקביעת תור
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // Subjects for the inquiry dropdown: the unique specialties of the clinic's active
   // therapists (from the DB) + two catch-alls. Not the service/treatment list.
   const inquirySubjects = [
@@ -263,17 +287,6 @@ export default function NewRequest() {
         </div>
       )}
 
-      {/* Inquiry sent — success banner */}
-      {inquirySent && (
-        <div className="flex items-start gap-3 rounded-xl ring-1 ring-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
-          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
-          <p className="flex-1 leading-relaxed">הפנייה נשלחה בהצלחה! הצוות שלנו יצור עמך קשר בהקדם.</p>
-          <button onClick={() => setInquirySent(false)} aria-label="סגירה" className="text-emerald-600 hover:text-emerald-800 p-0.5 -m-0.5 shrink-0">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
       {/* Not-sure entry — opens a human inquiry to the clinic team (no AI) */}
       <button
         onClick={() => setInquiryOpen(true)}
@@ -281,8 +294,8 @@ export default function NewRequest() {
       >
         <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={18} /></span>
         <div className="flex-1">
-          <p className="text-sm font-medium text-slate-800">לא בטוח/ה איזה טיפול מתאים?</p>
-          <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם להתאמה אישית</p>
+          <p className="text-sm font-medium text-slate-800">צריכים עזרה או מידע נוסף?</p>
+          <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם בהקדם</p>
         </div>
         <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:translate-x-0.5">
           <ArrowRight size={16} />
