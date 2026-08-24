@@ -118,9 +118,9 @@ export default function Calendar() {
             </button>
           </div>
           <Filter size={16} className="text-slate-400" />
-          <Select value={therapistFilter} onChange={setTherapistFilter}
+          <Select value={therapistFilter} onChange={setTherapistFilter} ariaLabel="סינון לפי מטפל"
             options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
-          <Select value={typeFilter} onChange={setTypeFilter}
+          <Select value={typeFilter} onChange={setTypeFilter} ariaLabel="סינון לפי סוג ביקור"
             options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
         </div>
       </div>
@@ -234,9 +234,13 @@ export default function Calendar() {
 }
 
 function AppointmentModal({ appt, patient, therapist, onClose }) {
-  const { cancelAppointment } = useData()
+  const { cancelAppointment, profileById } = useData()
   const { role } = useSession()
   const [confirmCancel, setConfirmCancel] = useState(false)
+  // Provenance: who booked it + through which channel. A desk booking stamps created_by
+  // (the secretary); a patient self-book / portal has no creator → attribute to the patient.
+  const bookedByName = appt.createdBy ? (profileById[appt.createdBy]?.fullName ?? null) : null
+  const selfBooked = !appt.createdBy && (appt.source === 'הזמנה עצמית' || appt.source === 'פורטל')
   // Cancelling makes sense for a still-scheduled appointment (not one already
   // arrived / completed / no-show); gated to staff who can approve.
   const canCancel = role?.canApprove && appt.status === 'קבוע'
@@ -279,6 +283,15 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
             </div>
           )}
 
+          {/* Provenance — booking channel + who created it. */}
+          {appt.source && (
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 flex-wrap">
+              <span>מקור:</span>
+              <Badge tone="slate">{appt.source}</Badge>
+              {bookedByName ? <span>· נקבע ע״י {bookedByName}</span> : selfBooked ? <span>· נקבע ע״י המטופל/ת</span> : null}
+            </div>
+          )}
+
           <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
             <span className="text-sm text-slate-500">סטטוס וסימון:</span>
             <AppointmentActions appt={appt} size="md" />
@@ -318,11 +331,12 @@ function Info({ label, children }) {
   )
 }
 
-function Select({ value, onChange, options }) {
+function Select({ value, onChange, options, ariaLabel }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      aria-label={ariaLabel}
       className="h-9 rounded-xl ring-1 ring-slate-300 bg-white px-3 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
     >
       {options.map((o) => (

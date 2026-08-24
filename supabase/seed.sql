@@ -2,8 +2,8 @@
 -- IDs are resolved by natural key (name) inside a single WITH chain — no hardcoded
 -- UUIDs. Appointment/task/request times are generated relative to now() so the
 -- calendar looks live, mirroring the seed.js anchoring to the current (Sunday) week.
--- NOTE: requests.ai is left NULL here; classification is populated by the app / the
--- classify-request Edge Function (roadmap step 5). profiles are created later by Auth.
+-- NOTE: the requests queue holds human inquiries only (kind='inquiry'); phone calls are
+-- handled directly by the desk (Direct Booking / Escalation). profiles are created by Auth.
 --
 -- Idempotency: run against an empty schema. Re-running appends a second clinic.
 
@@ -102,19 +102,17 @@ appt as (
   join prov on prov.tname = a.tname
   returning 1
 ),
--- Exceptions queue (urgent AI referrals + phone bookings). ai left NULL (see header).
+-- Secretary queue = human inquiries only (kind='inquiry') from the patient portal. Phone
+-- calls are handled directly (Direct Booking / Escalation), never through this queue.
 req as (
   insert into public.requests
-    (clinic_id, patient_id, description, preferred_therapist_id, visit_type_hint, preferred_time, source, status, created_at)
-  select (select id from c), pt.id, r.description, ph.id, r.hint, r.ptime, r.source, r.status,
+    (clinic_id, patient_id, kind, subject, description, source, status, created_at)
+  select (select id from c), pt.id, 'inquiry', r.subject, r.description, 'פורטל', r.status,
          now() - (r.mins || ' minutes')::interval
   from (values
-    ('נועם פרידמן', 'כאב חד ופתאומי בגב אחרי נפילה, קשה מאוד לזוז ומחמיר', NULL,          NULL,          'בוקר',        'הפניה דחופה', 'ממתין', 25),
-    ('תמר אוחיון',  'התקשרה לקבוע המשך סדרת טיפולי דיקור אצל ד"ר כהן',      'ד"ר דנה כהן', 'דיקור סיני',  'אחר הצהריים', 'טלפון',       'ממתין', 95),
-    ('שירה גולן',   'מתח וכאבי צוואר — ה-AI הציע עיסוי רפואי',              'מיכל לוי',    'עיסוי רפואי', 'גמיש',        'הפניה דחופה', 'אושר',  1440)
-  ) as r(pname, description, thname, hint, ptime, source, status, mins)
+    ('שירה גולן', 'אדמיניסטרציה', 'קיבלתי כמה טיפולים החודש — אפשר קבלה מרוכזת להחזר מקופת חולים?', 'ממתין', 14)
+  ) as r(pname, subject, description, status, mins)
   join pt on pt.name = r.pname
-  left join th ph on ph.name = r.thname
   returning 1
 ),
 -- Staff tasks (follow-ups). due_h/src_at_h are hours relative to now().

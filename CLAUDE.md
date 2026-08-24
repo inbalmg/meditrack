@@ -49,14 +49,26 @@ Replace outdated information instead of appending.
   ב-store — נקבע בכניסה (ראו `Login.jsx`).
 - **שדות חובה של מטופל (`patients`, נאכף ב-DB):** `phone` / `birth_year` / `gender` הם NOT NULL;
   `gender` הוא ערך קנוני `CHECK (gender IN ('male','female','other'))` — נאסף בטופסי הקליטה
-  (`NewRequest`, `PhoneRequestDialog`) ומוצג בעברית דרך `genderLabel` (`lib/format.js`). **גיל נגזר
+  (`NewRequest`, `PatientPicker` בטופסי המזכירה) ומוצג בעברית דרך `genderLabel` (`lib/format.js`). **גיל נגזר
   ואינו נשמר** — `age = currentYear − birth_year` (`ageFromBirthYear`); עמודת `age` הוסרה (migration 18).
 - **`email` (אופציונלי):** ערוץ **התראות משני** — הטלפון נשאר הערוץ המחייב. עמודה nullable עם
   `CHECK` פורמט שחל רק כשקיים ערך (migration 20); ולידציה בקליינט דרך `emailValid`/`normalizeEmail`
   (`lib/validation.js`). נאסף (רשות) בטופסי הקליטה ומוצג בתיק המטופל (`VisitCard`) כשקיים.
-- **תור המזכירה = חריגים בלבד:** הפניות דחופות (דגל AI) + בקשות טלפוניות. רוב ההזמנות
-  עצמיות וזורמות ישר ליומן. בקשות נושאות `source` (הזמנה עצמית / הפניה דחופה / טלפון / פורטל).
-- כל תור נושא `treatmentId` + `visitType` (שם הטיפול, denormalized למסכי תצוגה).
+- **שיחות טלפון = פעולה ישירה של המזכירה (ללא AI):** שני כפתורים בשורת המדדים של הדשבורד
+  (`Dashboard` → "קביעה מהירה" / "פתיחת בקשה"): **(1) קביעה ישירה בשיחה (Direct Booking)** —
+  `QuickBookDialog` → `bookAppointmentByStaff` יוצר תור ישירות ב-`appointments` (עוקף את `requests`),
+  `source='טלפון'` + `created_by` (המזכירה). **(2) פתיחת בקשה** — `EscalationDialog` → `openStaffRequest`
+  פותח **בקשה** (`requests`, `kind:'inquiry'`, `source='טלפון'`, `status='ממתין'`) עם מטופל + קטגוריה
+  (→`subject`) + פירוט (→`description`) + דחיפות רשות (`urgency`). הבקשה נכנסת ל**"בקשות הדורשות טיפול"**
+  ונפתרת שם כמו כל פנייה (סימון טופל / המרה למשימה) — לא נוצרת משימה אוטומטית.
+- **תור המזכירה (`requests`) = פניות אנושיות בלבד (`kind:'inquiry'`) — שני מקורות באותו לוח
+  "בקשות הדורשות טיפול"** (`RequestRow`→`InquiryRow`, בסטטוס `ממתין`; רוב ההזמנות עצמיות וזורמות ישר ליומן):
+  **(א) פנייה מהפורטל** (`source='פורטל'`, `submitInquiry`) — המטופל בוחר `subject` (נושא) + פירוט חופשי
+  (רשות), `urgency=null`. **(ב) בקשה שנפתחה בדלפק** (`source='טלפון'`, `openStaffRequest`) — המזכירה מזינה
+  מטופל + קטגוריה (→`subject`) + פירוט (→`description`) + דחיפות רשות. בלוח נבדלים **ויזואלית בלבד**: באדג׳
+  מקור (`פנייה מהפורטל`/`נפתחה במשרד`), באדג׳ דחיפות (`דחוף`) וצ׳יפים לסינון (דחופות/חדשות). `urgency` = שתי
+  רמות `רגיל`/`דחוף` (migrations 34–35). מקור הקביעה + זהות הקובע/ת של **תורים** (לא בקשות) מוצגים
+  ב-`Calendar`/`VisitCard`.
 
 מטפלים (`t1`–`t3`): רועי שקד·פיזיותרפיה · ד"ר דנה כהן·רפואה סינית ודיקור ·
 מיכל לוי·רפלקסולוגיה ועיסוי. טיפולים `tr1`–`tr6` מוגדרים ב-`seed.js`.
@@ -91,20 +103,21 @@ src/
                            בקשות (חריגים), ~40 תורים/שבוע, משימות. נגזרים: VISIT_TYPES, visitDuration
     store.jsx              DataProvider — state + כל הפעולות (ראו למטה)
   lib/
-    aiClassifier.js        classifyRequest() — טיפול+מטפל מוצע + דגל דחיפות
+    triage.js              קטגוריות + דחיפות משותפות (EscalationDialog + RequestRow + TasksBoard)
     format.js              עזרי תאריך/שעה בעברית
   components/
     ui.jsx                 Card, Badge, Button, Kpi, Avatar, Empty ...
-    RequestRow.jsx         שורת בקשה (מטופל / תגית source / סוג ביקור) + הרחבה (מלל/ניתוב/תגיות)
-    ScheduleDialog.jsx     בורר משבצות לאישור בקשת AI/טלפון (מטפל/תאריך/שעה, זמינות חיה)
-    PhoneRequestDialog.jsx קליטת בקשה טלפונית ע"י המזכירה (source:'טלפון')
+    RequestRow.jsx         שורת פנייה (inquiry) בתור המזכירה — badge מקור (פורטל/משרד) + דחיפות + הרחבה/פתרון
+    PatientPicker.jsx      בורר מטופל משותף (קיים/חדש) לטופסי המזכירה (QuickBook + Escalation)
+    QuickBookDialog.jsx    קביעה ישירה בשיחה — מטופל→מטפל→טיפול→משבצת (זמינות חיה) → bookAppointmentByStaff
+    EscalationDialog.jsx   פתיחת בקשה — מטופל + קטגוריה + דחיפות + פירוט → openStaffRequest (בקשה בתור המזכירה)
     AppointmentActions.jsx check-in/out (הגיע/סיום/לא הגיע), מוגן ב-role.canApprove
     clsx.js
   layouts/                 ClinicLayout (דסקטופ) · DoctorLayout (צפייה) · PatientLayout (רספונסיבי: טאבים במובייל / סרגל עליון בדסקטופ)
   pages/
     Login.jsx              שתי כניסות: צוות (3 תפקידים) · מטופל (רשום 'p1' / חדש null → setCurrentPatient)
     clinic/  Dashboard · Calendar · TasksBoard · Reports · Settings
-    doctor/  DoctorDay · DoctorCalendar · VisitCard (תיק מטופל: סיבת הפנייה + AI, **סיכום ביקור** לעריכה
+    doctor/  DoctorDay · DoctorCalendar · VisitCard (תיק מטופל: סיבת הפנייה, **סיכום ביקור** לעריכה
              (clinical_note לביקור הנוכחי) — **פעיל רק כשסטטוס הביקור "הגיע"**, נעול לביקור עתידי/אחר,
              **היסטוריית ביקורים** חוצת-מטפלים — כל הסקשן מתקפל בכפתור chevron
              (מקופל כברירת מחדל), ובתוכו אקורדיון פר-ביקור עם סיכום קליני · תרופות)
@@ -126,17 +139,20 @@ src/
 
 - **הזמנה עצמית:** `bookAppointment({patientId,therapistId,treatmentId,start,reason})` — תור "קבוע" ישיר.
 - **ביטול:** `cancelAppointment(id)` — מפנה את המשבצת.
-- **מסלול AI (בקשות הזמנה):** `submitRequest({...,source})` → `approveRequest(id, slot)` / `rejectRequest(id, reason)`.
-  דחייה שומרת `rejection_reason` (הערת מזכירה, רשות) שמוצגת למטופל. `requests.updated_at` (טריגר) מזין
-  את **באנר סטטוס הבקשות** ב-`MyAppointments`: בקשות `ממתין`/`נדחה` מוצגות רק אם עודכנו ב-7 הימים האחרונים
-  ולא נדחו ידנית ע"י המטופל (dismiss נשמר ב-localStorage, חל על באנר נדחה).
+- **קביעה ישירה בשיחה (מזכירה):** `bookAppointmentByStaff({patientId,therapistId,treatmentId,start,source,notify,notifyEmail})`
+  — תור "קבוע" ישיר ב-`appointments` עם `source` (`טלפון`/`ביקור ללא תור`) ו-`created_by` (המזכירה),
+  מפעיל תזכורת/אישור (`send-reminder`) ומציג את מודל אישור-ההזמנה המשותף.
+- **פתיחת בקשה (מזכירה):** `openStaffRequest({patientId,category,description,urgency})` — בקשה
+  `kind:'inquiry'` בסטטוס `ממתין` (`source:'טלפון'`); `subject`=קטגוריה, `urgency` שתי רמות רגיל/דחוף
+  (migrations 34–35). נפתרת דרך `updateInquiry`/`convertInquiryToTask` כמו פניית פורטל.
 - **פניות אנושיות ("לא בטוח/ה"):** `submitInquiry({patientId,subject,description})` יוצר `requests`
-  עם `kind:'inquiry'` (ללא `ai`, סטטוס `ממתין`). המזכירה פותרת בשני מסלולים סותרים:
-  `updateInquiry(id,{status:'סגור',staffNote})` (סגירה ישירה, ללא משימה) **או** `convertInquiryToTask(id)`
-  (יוצרת `tasks` בסטטוס `בטיפול`, אחראי null = "ללא שיוך (צוות המשרד / כללי)", ומקשרת דרך
-  `requests.converted_task_id` תוך עדכון הבקשה ל-`הומר למשימה`). הערה פנימית (`staff_note`) נשמרת
-  **אוטומטית** (`updateRequestNote`, ללא כפתור) ומועברת לגוף המשימה בהמרה. הפניות מופיעות בתור המזכירה
-  (`RequestRow` → `InquiryRow`) כל עוד `ממתין`.
+  עם `kind:'inquiry'` (ללא `ai`, סטטוס `ממתין`, `source:'פורטל'`). **שני מסלולי פתרון סופיים סותרים**
+  (שניהם מסירים מהלוח): **(A) סגירה ישירה** — `updateInquiry(id,{status:'סגור',staffNote})` (ללא משימה);
+  **(B) המרה למשימה** — `convertInquiryToTask(id)` יוצרת `tasks` בסטטוס `בטיפול` (אחראי null = "ללא שיוך
+  (צוות המשרד / כללי)"), **מעבירה נתונים**: `subject`→`category`, `urgency`→`urgency`,
+  `description`+`staff_note`→`note`, וכותרת = `subject` + שם המטופל; מקשרת דרך `requests.converted_task_id`
+  ומעדכנת את הבקשה ל-`הומר למשימה`. הערה פנימית (`staff_note`) נשמרת **אוטומטית** (`updateRequestNote`, ללא
+  כפתור, לא נראית למטופל).
 - **שיקוף השלמת משימה למטופל:** מטופל לא רשאי לקרוא `tasks` (RLS), לכן סטטוס הבקשה הוא הערוץ היחיד שלו.
   `reflectConvertedTask` (נקרא מ-`setTaskStatus`/`restoreTask`) ממפה את מחזור-החיים של המשימה המקושרת חזרה
   לבקשה: משימה שהושלמה → `סגור`, משימה פעילה → `הומר למשימה`. פורטל המטופל (`MyAppointments`) מציג לפי
@@ -162,17 +178,13 @@ src/
 - **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
   — משפיעות בפועל ברחבי האפליקציה.
 
-## AI ואוטומציות
+## אוטומציות
 
-- **`classifyRequest`** (`lib/aiClassifier.js`) מקבל `{description, preferredTherapistId, visitTypeHint}`
-  ומחזיר `{urgency, urgencyScore, urgentFlag, treatmentId, visitType, routedTo, tags, rationale}`.
-  עקרון: **בחירת המטופל מנצחת** — hint של מטפל/טיפול גובר; אחרת מיפוי מילות-מפתח (`TREATMENT_RULES`),
-  ברירת מחדל `tr1` (פיזיו הערכה). דחיפות = `URGENT_TERMS` → `urgentFlag` → הפניה לאדם.
-- **מנוע ה-LLM האמיתי (בשרת):** Edge Function `classify-request` מריצה את הסיווג עם **Gemini Flash**
-  (`GEMINI_API_KEY`, מודל דרך `GEMINI_MODEL` בברירת מחדל `gemini-3.1-flash-lite`, פלט JSON מובנה) — עם אותו
-  input/output schema. הפרונטאנד קורא דרך `classifyAsync` (`store.jsx`), ו-`classifyRequest` המקומי משמש
-  כ-Fallback (וגם ה-Edge Function נופלת ל-classifier דטרמיניסטי אם ה-LLM נכשל/חסר מפתח). ה-UI לא משתנה.
-- **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ; אישור בקשה קובע תור ומנתב למטפל שה-AI בחר.
+- **אין AI בקליינט.** סיווג ה-AI (`classifyRequest`/`aiClassifier.js`) הוסר לחלוטין — הוא אינו חלק
+  מאף מסלול (הזמנה עצמית, פניות אנושיות, שיחות טלפון) וגם לא משמש עוד לתצוגת תגיות בתיק המטופל
+  (`VisitCard`/`DoctorDay`). כל הקביעות/הפניות נקבעות/נפתחות ידנית. (Edge function `classify-request`
+  נותרה בשרת כשריד היסטורי ואינה נקראת מהקליינט.)
+- **אוטומציות ב-`store.jsx`:** אי-הגעה יוצרת משימת פולו-אפ אוטומטית (`bulkMarkNoShow`/`setAppointmentStatus`).
 
 ## מודל אבטחה — מצב נוכחי ומתוכנן
 
@@ -215,6 +227,11 @@ Edge: `classify-request` (סיווג) ו-`send-reminder` (וואטסאפ/SMS) מ
 
 - עברית + RTL בכל הממשק (`dir="rtl"` ב-`index.html`); טקסטים בקוד בעברית — לשמור.
 - צבעים דרך טוקני Tailwind (`teal-*`, `ink-*`, `canvas`) — לא hex ישיר ב-JSX.
+- **אזור זמן = שעון הקליניקה (Asia/Jerusalem), לא של הצופה:** כל הצגת תאריך/שעה עוברת דרך
+  `lib/format.js` (`hhmm`/`dayName`/`shortDate`/`friendlyDate`) שמעצבים ב-Asia/Jerusalem דרך `Intl`
+  (ללא `date-fns format`, שמשתמש ב-TZ של הדפדפן — היה מציג UTC על סביבה לא-ישראלית). קלט
+  `datetime-local` (טופס משימות) עובר דרך `toClinicInput`/`clinicInputToDate` באותו אזור זמן, כך
+  שהשעה שנשמרת/מוצגת עקבית בכל מכשיר.
 - **נתונים מ-Supabase, סשן נשמר** — הסשן המאומת נשמר בין רענונים; `store.jsx` טוען מה-DB בכניסה (RLS-scoped)
   ומתמיד פעולות ברקע. דורש `.env` עם `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (ראו `.env.example`). ניווט דרך קישורי SPA.
 - כל בעיה שנראית בדפדפן — לתקן בקוד המקור, לא ב-DevTools.

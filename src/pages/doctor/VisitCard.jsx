@@ -1,15 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { ChevronRight, ChevronDown, Sparkles, Phone, Mail, Pill, History, FileText, Stethoscope, CalendarClock, Check, Lock } from 'lucide-react'
+import { ChevronRight, ChevronDown, Phone, Mail, Pill, History, FileText, Stethoscope, CalendarClock, Check, Lock } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Badge, Avatar, Button, Empty } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
-import { classifyRequest } from '../../lib/aiClassifier.js'
 import { hhmm, friendlyDate, dayName, genderLabel } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
-// Patient profile for the therapist: the current visit's reason + AI tags, an editable
+// Patient profile for the therapist: the current visit's reason, an editable
 // clinical summary, the patient's full cross-provider visit history (collapsible), and meds.
 const MEDS = {
   p1: ['אופטלגין 500 מ״ג — לפי צורך'],
@@ -70,7 +69,6 @@ export default function VisitCard() {
   }
 
   const patient = patientById[appt.patientId]
-  const ai = classifyRequest({ description: appt.reason })
   const meds = MEDS[patient.id] || []
   const now = new Date()
   const upcomingCount = visits.filter((v) => v.start > now).length
@@ -96,7 +94,10 @@ export default function VisitCard() {
           <div className="text-left">
             <p className="text-sm text-slate-400">{friendlyDate(appt.start)}</p>
             <p className="text-2xl font-bold text-slate-800 tabular-nums">{hhmm(appt.start)}</p>
-            <Badge tone="blue">{appt.visitType}</Badge>
+            <div className="flex items-center justify-end gap-1.5">
+              <Badge tone="blue">{appt.visitType}</Badge>
+              {appt.source && <Badge tone="slate">{appt.source}</Badge>}
+            </div>
           </div>
         </div>
         {/* Visit status + therapist check-in / completion controls. */}
@@ -106,22 +107,12 @@ export default function VisitCard() {
         </div>
       </Card>
 
-      {/* Reason + AI */}
+      {/* Reason */}
       <Card className="p-5">
         <div className="flex items-center gap-2 text-slate-700 font-semibold mb-2">
           <FileText size={18} className="text-teal-600" /> סיבת הפנייה
         </div>
         <p className="text-slate-700 leading-relaxed">"{appt.reason}"</p>
-        <div className="mt-4 rounded-xl bg-teal-50/70 ring-1 ring-teal-100 p-3">
-          <div className="flex items-center gap-1.5 text-teal-700 text-sm font-semibold mb-2">
-            <Sparkles size={15} /> תגיות וסיווג AI
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone={ai.urgency === 'דחוף' ? 'red' : ai.urgency === 'בהקדם' ? 'amber' : 'teal'}>{ai.urgency}</Badge>
-            {ai.tags.map((t) => <Badge key={t} tone="slate">{t}</Badge>)}
-          </div>
-          <p className="text-xs text-slate-500 mt-2">{ai.rationale}</p>
-        </div>
       </Card>
 
       {/* Visit summary — editable ONLY while the visit is in progress (status "הגיע").

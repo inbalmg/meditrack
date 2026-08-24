@@ -12,8 +12,6 @@
  *
  * שימוש: <Welcome heading="..." onBack={...}> <WelcomeCard .../> ... </Welcome>
  */
-import logoUrl from '../assets/meditrack-logo.png'
-
 // גופן כותרות: Heebo (נטען ב-index.html), עם 'Assistant' כחלופה.
 const FONT = "'Heebo', 'Assistant', 'Rubik', system-ui, sans-serif"
 
@@ -49,6 +47,76 @@ const CSS = `
   .mtw-card:hover .mtw-iconwrap{ transform:none; }
 }
 `
+
+/* ------------------------------- Logo mark --------------------------------- */
+
+/**
+ * LogoMark — לוגו MediTrack Clinic הרשמי (מותג "logo 4a"), גרסת רקע-כהה.
+ * פריסה (RTL): **הסמל מימין** ל-wordmark; "MediTrack" (לבן) ו-"CLINIC" (accent
+ * טורקיז) **ממורכזים זה מתחת לזה** באותו ציר. הסמל = ריבוע-מעוגל בגרדיאנט טורקיז
+ * עם צלב/יומן חתוכים כשטח שלילי (mask). מבוסס על `src/assets/brand/`.
+ */
+const BRAND_FONT = "'Poppins', 'Heebo', Helvetica, Arial, sans-serif"
+
+function LogoMark({ style }) {
+  // ציר-מרכז משותף ל-MediTrack ו-CLINIC (CLINIC ממורכז בדיוק מתחת ל-MediTrack).
+  const TEXT_CX = 170
+  return (
+    <svg viewBox="0 0 455 200" role="img" aria-label="MediTrack Clinic" style={style}>
+      <title>MediTrack Clinic</title>
+      <defs>
+        <linearGradient id="mtGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#5FE3D1" />
+          <stop offset="1" stopColor="#0D8FA2" />
+        </linearGradient>
+        <mask id="mtMask">
+          <rect x="0" y="0" width="200" height="200" fill="#fff" />
+          <rect x="20" y="56" width="160" height="10" rx="5" fill="#000" />
+          <rect x="86" y="82" width="28" height="88" rx="14" fill="#000" />
+          <rect x="56" y="112" width="88" height="28" rx="14" fill="#000" />
+          <rect x="64" y="20" width="15" height="30" rx="7.5" fill="#000" />
+          <rect x="121" y="20" width="15" height="30" rx="7.5" fill="#000" />
+        </mask>
+      </defs>
+
+      {/* wordmark (משמאל) — direction:ltr כדי שהטקסט הלטיני לא יידחף ב-RTL */}
+      <text
+        x={TEXT_CX}
+        y="96"
+        textAnchor="middle"
+        direction="ltr"
+        fontFamily={BRAND_FONT}
+        fontSize="53"
+        fontWeight="600"
+        fill="#FFFFFF"
+      >
+        MediTrack
+      </text>
+      <text
+        x={TEXT_CX}
+        y="134"
+        textAnchor="middle"
+        direction="ltr"
+        fontFamily={BRAND_FONT}
+        fontSize="22"
+        fontWeight="500"
+        letterSpacing="8"
+        fill="#2DD4BF"
+      >
+        CLINIC
+      </text>
+
+      {/* הסמל (מימין) — גובהו מיושר בדיוק לגובה הנראה של שתי שורות הטקסט (מקצה
+          ה-M העליון ב-MediTrack ועד בסיס האותיות ב-CLINIC), לא לתיבת ה-line-box.
+          מרווח קטן מה-wordmark וממורכז אנכית מולו.
+          בסיס כהה (ink-900) מתחת למסכה → הצלב/היומן נקראים כהה על כל רקע, זהה ל-favicon. */}
+      <g transform="translate(325 38) scale(0.52)">
+        <rect x="14" y="30" width="172" height="156" rx="42" fill="#0c2627" />
+        <rect x="14" y="30" width="172" height="156" rx="42" fill="url(#mtGrad)" mask="url(#mtMask)" />
+      </g>
+    </svg>
+  )
+}
 
 /* ----------------------------------- Icons ----------------------------------- */
 
@@ -391,11 +459,7 @@ export default function Welcome({ heading, onBack, children }) {
           boxSizing: 'border-box',
         }}
       >
-        <img
-          src={logoUrl}
-          alt="MediTrack Clinic"
-          width="659"
-          height="210"
+        <LogoMark
           style={{
             width: '17.5em',
             height: 'auto',
@@ -459,7 +523,7 @@ export default function Welcome({ heading, onBack, children }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.85em' }}>
             <ShieldIcon />
             <p style={{ margin: 0, fontSize: '1.25em', lineHeight: 1.45, color: '#a9c2c8', textAlign: 'right' }}>
-              המערכת מאובטחת ברמה הגבוהה ביותר
+              המערכת מאובטחת 
               <br />
               הנתונים שלכם מוגנים
             </p>

@@ -96,6 +96,22 @@ export function emailValid(email) {
   return e === '' || EMAIL_RE.test(e)
 }
 
+// --- Settings: overdue-task grace window (hours) ---
+// Whole non-negative hours, no leading zeros ("07"), within range. Returns
+// { value, error } — value is the parsed integer when valid (else null), error is
+// a Hebrew message (else ''). Used by the Settings field before persisting.
+export const OVERDUE_GRACE_MIN = 0
+export const OVERDUE_GRACE_MAX = 72
+export function validateOverdueGraceHours(raw) {
+  const s = String(raw ?? '').trim()
+  if (s === '') return { value: null, error: 'יש להזין מספר שעות' }
+  if (!/^\d+$/.test(s)) return { value: null, error: 'יש להזין מספר שלם (ספרות בלבד, ללא סימנים או נקודה)' }
+  if (s.length > 1 && s[0] === '0') return { value: null, error: 'אין להתחיל באפס מוביל' }
+  const n = Number(s)
+  if (n < OVERDUE_GRACE_MIN || n > OVERDUE_GRACE_MAX) return { value: null, error: `יש להזין ערך בין ${OVERDUE_GRACE_MIN} ל-${OVERDUE_GRACE_MAX}` }
+  return { value: n, error: '' }
+}
+
 // Selectable/valid gender values (intake forms + validation). Kept to male/female
 // for now. NOTE: some legacy rows may still hold 'other' — genderLabel still renders
 // those for display; they just can't be chosen for a new/edited patient.

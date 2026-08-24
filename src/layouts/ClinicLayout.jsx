@@ -15,8 +15,7 @@ import { Avatar } from '../components/ui.jsx'
 import BookingConfirmationModal from '../components/BookingConfirmationModal.jsx'
 import Toaster from '../components/Toaster.jsx'
 import { clsx } from '../components/clsx.js'
-import { CrossMark } from '../components/Logo.jsx'
-import logoUrl from '../assets/meditrack-logo.svg'
+import { BrandLockup } from '../components/Logo.jsx'
 
 export default function ClinicLayout() {
   const { role, logout } = useSession()
@@ -44,8 +43,8 @@ export default function ClinicLayout() {
       {/* Sidebar (right, in RTL) */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col bg-ink-900 text-slate-300 sticky top-0 h-screen">
         <div className="flex items-center px-6 h-16 border-b border-white/5">
-          {/* Same high-res wordmark asset as the login/welcome hero (identical logo across views). */}
-          <img src={logoUrl} alt="MediTrack Clinic" className="h-10 w-auto" />
+          {/* לוגו המותג החדש — זהה בכל התצוגות (מסך הכניסה + הסיידברים). */}
+          <BrandLockup variant="dark" />
         </div>
 
         <nav className="flex-1 px-3 pt-[19px] pb-4 space-y-1">
@@ -58,7 +57,9 @@ export default function ClinicLayout() {
                 clsx(
                   'flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-medium transition',
                   isActive
-                    ? 'bg-teal-600 text-white shadow-sm'
+                    // פריט ניווט פעיל ב-teal-700 (לבן על teal-700 ≈ 5.5:1, עובר WCAG AA)
+                    // במקום teal-600 (3.74:1) — לניגודיות מספקת.
+                    ? 'bg-teal-700 text-white shadow-sm'
                     : 'text-slate-300 hover:bg-white/5 hover:text-white',
                 )
               }
@@ -110,9 +111,9 @@ export default function ClinicLayout() {
         </main>
       </div>
 
-      {/* Booking-success confirmation (shown after approving a phone/AI request). */}
+      {/* Booking-success confirmation (shown after a direct desk booking). */}
       <BookingConfirmationModal />
-      {/* Live toasts (e.g. a new patient request arriving over Realtime). */}
+      {/* Live toasts (e.g. a new patient inquiry arriving over Realtime). */}
       <Toaster />
     </div>
   )
@@ -130,16 +131,14 @@ function TopBar({ onLogout, nav }) {
         {/* חזרה למסך הקודם */}
         <button
           onClick={() => navigate(-1)}
+          aria-label="חזרה"
           className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
         >
           <ArrowRight size={18} className="shrink-0" />
           <span className="hidden sm:inline">חזרה</span>
         </button>
-        {/* Mobile brand + nav */}
-        <div className="md:hidden flex items-center gap-2">
-          <CrossMark className="h-7 w-7" />
-          <span className="font-bold text-lg text-slate-800">MediTrack</span>
-        </div>
+        {/* Mobile brand */}
+        <BrandLockup variant="light" size={32} className="md:hidden" />
         <div className="flex-1" />
         {/* תאריך היום — מיושר לגובה הלוגו, בכל המסכים חוץ מהגדרות */}
         {!isSettings && (
@@ -149,7 +148,7 @@ function TopBar({ onLogout, nav }) {
           </div>
         )}
         <div className="md:hidden">
-          <button onClick={onLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500">
+          <button onClick={onLogout} aria-label="התנתקות" title="התנתקות" className="p-2 rounded-xl hover:bg-slate-100 text-slate-500">
             <LogOut size={20} />
           </button>
         </div>
@@ -164,7 +163,7 @@ function TopBar({ onLogout, nav }) {
             className={({ isActive }) =>
               clsx(
                 'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium',
-                isActive ? 'bg-teal-600 text-white' : 'text-slate-500 bg-white ring-1 ring-slate-200',
+                isActive ? 'bg-teal-700 text-white' : 'text-slate-500 bg-white ring-1 ring-slate-200',
               )
             }
           >

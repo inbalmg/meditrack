@@ -1,11 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { addHours, subDays } from 'date-fns'
+import { subDays } from 'date-fns'
 import { supabase } from '../lib/supabase.js'
 import { useSession } from '../session.jsx'
-import { classifyRequest } from '../lib/aiClassifier.js'
 import { ageFromBirthYear } from '../lib/format.js'
 import { normalizeName, validateStaffName, isValidStaffRole, validateTherapistName, validateSpecialty, phoneValid, normalizePhone, birthYearValid, isValidGender, normalizeEmail, emailValid } from '../lib/validation.js'
-import { AUTO_TASK_DUE_HOURS } from './seed.js'
 
 // DataProvider — the SAME useData() contract as before, now backed by Supabase.
 // State is a local mirror hydrated from the DB on login (RLS-scoped to the signed-in
@@ -27,6 +25,11 @@ function persist(promiseLike, label) {
 
 const DEFAULT_SETTINGS = {
   remindersEnabled: true, autoNoShow: true, noShowMinutes: 15, followUpOnNoShow: true,
+  // Overdue-task flagging. overdueEnabled=false turns the whole "באיחור" mechanism
+  // off (no red, no counts anywhere). overdueGraceHours = grace window (hours) after
+  // a task's due time before it's flagged; 0 = flag the instant the deadline passes.
+  // See lib/tasks.js.
+  overdueEnabled: true, overdueGraceHours: 0,
 }
 
 // The task board mirror holds every open/in-progress task, but only the last
@@ -45,35 +48,35 @@ const mapPatient = (r) => {
   return { id: r.id, name: r.name, phone: r.phone, birthYear, age: ageFromBirthYear(birthYear), gender: r.gender, email: r.email ?? null, notifyOptIn: r.notify_opt_in ?? true }
 }
 const mapStaff = (r) => ({ id: r.id, name: r.name, roleId: r.role })
+const mapProfile = (r) => ({ id: r.id, fullName: r.full_name ?? null, roleId: r.role })
 const mapAppt = (r) => ({
   id: r.id, patientId: r.patient_id, therapistId: r.therapist_id, treatmentId: r.treatment_id,
   start: new Date(r.start), durationMin: r.duration_min, visitType: r.visit_type,
   status: r.status, reason: r.reason, source: r.source, clinicalNote: r.clinical_note ?? null,
+  createdBy: r.created_by ?? null,
 })
 const mapTask = (r) => ({
   id: r.id, title: r.title, patientId: r.patient_id, assigneeId: r.assignee_id,
-  createdBy: r.created_by ?? null,
+  createdBy: r.created_by ?? null, urgency: r.urgency ?? null, category: r.category ?? null,
   createdAt: new Date(r.created_at), sourceAt: r.source_at ? new Date(r.source_at) : undefined,
   due: r.due ? new Date(r.due) : new Date(), status: r.status, source: r.source, note: r.note,
   completedAt: r.completed_at ? new Date(r.completed_at) : undefined,
+  sourceApptId: r.source_appointment_id ?? null,
 })
-// Requests carry a classification (`ai`) for booking rows only; when the DB row is missing
-// it (older rows), fall back to the passed classifier. Shared by hydrate + Realtime so both
-// produce the identical app shape.
-const mapRequest = (r, aiFor) => {
-  const kind = r.kind ?? 'booking'
-  return {
-    id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
-    updatedAt: new Date(r.updated_at ?? r.created_at),
-    description: r.description, preferredTherapistId: r.preferred_therapist_id,
-    visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
-    source: r.source, status: r.status, rejectionReason: r.rejection_reason ?? null,
-    kind, subject: r.subject ?? null, staffNote: r.staff_note ?? null,
-    convertedTaskId: r.converted_task_id ?? null,
-    // Human inquiries carry no AI payload; only booking requests get classified.
-    ai: kind === 'inquiry' ? null : (r.ai ?? aiFor({ description: r.description, preferredTherapistId: r.preferred_therapist_id, visitTypeHint: r.visit_type_hint })),
-  }
-}
+// Requests hold human inquiries (kind='inquiry'): either a patient-portal "not sure which
+// treatment" inquiry, or a request-to-treat the secretary opens at the desk ("פתיחת בקשה").
+// The AI booking-request path was retired (migration 33 dropped requests.ai). `subject` =
+// the category, `urgency` = optional triage level (migration 34). Shared by hydrate +
+// Realtime so both produce the identical app shape.
+const mapRequest = (r) => ({
+  id: r.id, patientId: r.patient_id, createdAt: new Date(r.created_at),
+  updatedAt: new Date(r.updated_at ?? r.created_at),
+  description: r.description, preferredTherapistId: r.preferred_therapist_id,
+  visitTypeHint: r.visit_type_hint, preferredTime: r.preferred_time,
+  source: r.source, status: r.status, rejectionReason: r.rejection_reason ?? null,
+  kind: r.kind ?? 'inquiry', subject: r.subject ?? null, staffNote: r.staff_note ?? null,
+  urgency: r.urgency ?? null, convertedTaskId: r.converted_task_id ?? null,
+})
 
 // Id-idempotent mirror patches for Realtime. Realtime echoes back THIS tab's own optimistic
 // writes (same client-generated UUID), so we replace-by-id instead of blind-prepend — an
@@ -96,6 +99,10 @@ export function DataProvider({ children }) {
   const [therapists, setTherapists] = useState([])
   const [treatments, setTreatments] = useState([])
   const [staff, setStaff] = useState([])
+  // Clinic profiles (id → full_name), used to show who booked an appointment. Staff can
+  // read all clinic profiles (RLS); a therapist reads only their own, so provenance falls
+  // back to the source badge for them.
+  const [profiles, setProfiles] = useState([])
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [currentPatientId, setCurrentPatient] = useState(null)
   // Set when the secretary/manager approves a phone/AI request — drives the shared
@@ -114,9 +121,6 @@ export function DataProvider({ children }) {
   // the patient insert. This holds the in-flight self-registration write; afterPatientWrite
   // chains the dependent insert after it commits. Resolved (no wait) for existing patients.
   const pendingPatientWrite = useRef(Promise.resolve())
-  // Latest component-level aiFor, so the Realtime handler (created once at login) always
-  // classifies with the current treatments state instead of a stale login-time snapshot.
-  const aiForRef = useRef(null)
   // Latest requests, so the Realtime handler can tell a genuinely-new remote request from
   // the echo of THIS tab's own optimistic insert (present ⇒ echo ⇒ no toast).
   const requestsRef = useRef(requests)
@@ -154,7 +158,7 @@ export function DataProvider({ children }) {
         // the last MAIN_BOARD_DONE_DAYS. The older completed backlog is fetched lazily by
         // the archive drawer (fetchArchivedTasks) — it never enters this mirror.
         const doneCutoff = subDays(new Date(), MAIN_BOARD_DONE_DAYS).toISOString()
-        const [th, tr, tp, pt, ap, rq, tk, st, cl] = await Promise.all([
+        const [th, tr, tp, pt, ap, rq, tk, st, cl, pr] = await Promise.all([
           supabase.from('therapists').select('*'),
           supabase.from('treatments').select('*').eq('active', true),
           supabase.from('treatment_providers').select('treatment_id,therapist_id'),
@@ -164,6 +168,7 @@ export function DataProvider({ children }) {
           supabase.from('tasks').select('*').or(`status.neq.הושלם,completed_at.gte.${doneCutoff}`),
           supabase.from('staff').select('*'),
           supabase.from('clinics').select('settings').maybeSingle(),
+          supabase.from('profiles').select('id,full_name,role'),
         ])
         if (!active) return
 
@@ -177,24 +182,17 @@ export function DataProvider({ children }) {
           id: r.id, name: r.name, durationMin: r.duration_min,
           therapistIds: providersByTreatment.get(r.id) ?? [],
         }))
-        const firstProvider = (treatmentId) =>
-          mappedTreatments.find((t) => t.id === treatmentId)?.therapistIds?.[0] ?? null
-        // UUID-correct AI: reuse the local classifier for urgency/tags, remap ids to the DB.
-        const aiFor = (input) => {
-          const base = classifyRequest(input)
-          const t = mappedTreatments.find((x) => x.name === base.visitType)
-          const treatmentId = t?.id ?? null
-          return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProvider(treatmentId) }
-        }
-
         setTherapists((th.data ?? []).map(mapTherapist))
         setTreatments(mappedTreatments)
         setPatients((pt.data ?? []).map(mapPatient))
         setAppointments((ap.data ?? []).map(mapAppt))
         setTasks((tk.data ?? []).map(mapTask))
         setStaff((st.data ?? []).map(mapStaff))
-        setSettings(cl.data?.settings ?? DEFAULT_SETTINGS)
-        setRequests((rq.data ?? []).map((r) => mapRequest(r, aiFor)))
+        setProfiles((pr.data ?? []).map(mapProfile))
+        // Merge over defaults so settings saved before a new key was introduced
+        // (e.g. overdueGraceHours) still resolve to a value.
+        setSettings({ ...DEFAULT_SETTINGS, ...(cl.data?.settings ?? {}) })
+        setRequests((rq.data ?? []).map(mapRequest))
         // A patient sees only their own patient row (RLS) — that's their currentPatientId.
         setCurrentPatient(role?.isPatient ? ((pt.data ?? [])[0]?.id ?? null) : null)
         setReady(true)
@@ -213,7 +211,7 @@ export function DataProvider({ children }) {
     const doneCutoffMs = subDays(new Date(), MAIN_BOARD_DONE_DAYS).getTime()
     const applyRequest = (p) => {
       if (p.eventType === 'DELETE') { setRequests(removeById(p.old.id)); return }
-      const req = mapRequest(p.new, aiForRef.current ?? (() => null))
+      const req = mapRequest(p.new)
       // Toast the clinic when a NEW pending request lands live — but only for staff who work
       // the queue, only on a genuinely-new remote row (not the echo of our own optimistic
       // insert, which is already in the mirror), and only while pending.
@@ -279,6 +277,8 @@ export function DataProvider({ children }) {
   const therapistById = useMemo(() => Object.fromEntries(therapists.map((t) => [t.id, t])), [therapists])
   const activeTherapists = useMemo(() => therapists.filter((t) => t.active !== false), [therapists])
   const treatmentById = useMemo(() => Object.fromEntries(treatments.map((t) => [t.id, t])), [treatments])
+  // profile_id → profile (full_name), for showing who booked an appointment.
+  const profileById = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p])), [profiles])
   // Bookable providers for the PATIENT self-booking flow: active, with a specialty
   // AND at least one treatment they provide. A therapist missing either can't be
   // booked end-to-end (no treatment ⇒ dead-end at the treatment step), so they're
@@ -306,30 +306,8 @@ export function DataProvider({ children }) {
   const assigneeById = useMemo(() => Object.fromEntries(assignees.map((a) => [a.id, a])), [assignees])
   const visitDurations = useMemo(() => Object.fromEntries(treatments.map((t) => [t.name, t.durationMin])), [treatments])
   // Route to the first ACTIVE provider of the treatment (skip archived ones).
-  const firstProviderFor = (treatmentId) =>
-    (treatmentById[treatmentId]?.therapistIds ?? []).find((id) => therapistById[id]?.active !== false) ?? null
   function treatmentsForTherapist(therapistId) {
     return treatments.filter((t) => t.therapistIds.includes(therapistId))
-  }
-  function aiFor(input) {
-    const base = classifyRequest(input)
-    const t = treatments.find((x) => x.name === base.visitType)
-    const treatmentId = t?.id ?? null
-    return { ...base, treatmentId, routedTo: input.preferredTherapistId || firstProviderFor(treatmentId) }
-  }
-  aiForRef.current = aiFor
-
-  // "Not sure?" recommendation — ask the server (Claude when configured) so the
-  // urgent safety-net gate and the treatment suggestion use the real classifier,
-  // not just local keywords. Falls back to the local classifier if offline/failing.
-  async function classifyAsync(input) {
-    try {
-      const { data, error } = await supabase.functions.invoke('classify-request', { body: input })
-      if (error || !data || data.error) throw error ?? new Error('classify failed')
-      return data
-    } catch {
-      return aiFor(input)
-    }
   }
 
   // --- Settings ---
@@ -526,69 +504,34 @@ export function DataProvider({ children }) {
     persist(supabase.from('appointments').delete().eq('id', apptId), 'cancelAppointment')
   }
 
-  // --- SECONDARY path: "not sure?" request → AI classify → clinic pipeline ---
-  function submitRequest({ patientId, description, preferredTherapistId, visitTypeHint, preferredTime, source }) {
-    const id = uuid()
-    const input = { description, preferredTherapistId: preferredTherapistId || null, visitTypeHint: visitTypeHint || null }
-    const now = new Date()
-    const req = {
-      id, patientId, createdAt: now, updatedAt: now, description,
-      preferredTherapistId: input.preferredTherapistId, visitTypeHint: input.visitTypeHint,
-      preferredTime: preferredTime || 'גמיש', source: source || 'פורטל', status: 'ממתין',
-      rejectionReason: null, ai: aiFor(input),
-    }
-    setRequests((prev) => [req, ...prev])
-    // Same ordering as bookAppointment: a new patient's request insert (req_insert_patient:
-    // patient_id = app.patient_id()) must wait for their patient row to commit first.
-    persist(afterPatientWrite(() => supabase.from('requests').insert({
-      id, clinic_id: clinicId, patient_id: patientId, description,
-      preferred_therapist_id: input.preferredTherapistId, visit_type_hint: input.visitTypeHint,
-      preferred_time: req.preferredTime, source: req.source, status: 'ממתין', ai: req.ai,
-    })), 'submitRequest')
-    // Refine classification server-side (Claude when configured); update if it returns.
-    supabase.functions.invoke('classify-request', { body: input }).then(({ data }) => {
-      if (!data || data.error) return
-      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, ai: data } : r)))
-      persist(supabase.from('requests').update({ ai: data }).eq('id', id), 'submitRequest.ai')
-    }).catch(() => {})
-    return req
-  }
-
-  function approveRequest(requestId, slot) {
-    const req = requests.find((r) => r.id === requestId)
-    if (!req) return
+  // --- SECRETARY DIRECT BOOKING (קביעה ישירה בשיחה) ---
+  // The secretary schedules a call straight into the calendar — same result as a patient
+  // self-book, done on their behalf. Writes to `appointments` (never `requests`), stamping
+  // WHO booked it (created_by) and the channel (`source`: 'טלפון' phone / 'ביקור ללא תור'
+  // walk-in). Optionally fires the WhatsApp/SMS + email confirmation and shows the same
+  // booking-success modal a patient sees on self-booking.
+  function bookAppointmentByStaff({ patientId, therapistId, treatmentId, start, source = 'טלפון', notify = true, notifyEmail = false }) {
+    const tr = treatmentById[treatmentId]
+    if (!tr) return null
     const apptId = uuid()
-    const start = slot?.start ?? addHours(new Date(), 24)
-    const treatmentId = slot?.treatmentId ?? req.ai.treatmentId ?? null
-    const tr = treatmentId ? treatmentById[treatmentId] : null
-    const therapistId = slot?.therapistId ?? req.ai.routedTo
     const appt = {
-      id: apptId, patientId: req.patientId, therapistId, treatmentId, start,
-      durationMin: slot?.durationMin ?? tr?.durationMin ?? 30,
-      visitType: tr?.name ?? req.ai.visitType, status: 'קבוע', reason: req.description,
-      source: req.source,
+      id: apptId, patientId, therapistId, treatmentId, start,
+      durationMin: tr.durationMin, visitType: tr.name, status: 'קבוע',
+      reason: tr.name, source, createdBy: userId ?? null,
     }
-    setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'אושר', updatedAt: new Date() } : r)))
     setAppointments((prev) => [...prev, appt])
-    persist(supabase.from('appointments').insert({
-      id: apptId, clinic_id: clinicId, patient_id: req.patientId, therapist_id: therapistId,
-      treatment_id: treatmentId, start: start.toISOString(), duration_min: appt.durationMin,
-      visit_type: appt.visitType, status: 'קבוע', reason: req.description, source: req.source,
-    }), 'approveRequest.appt')
-    persist(supabase.from('requests').update({ status: 'אושר', appointment_id: apptId }).eq('id', requestId), 'approveRequest.req')
-    // Confirmation channels (secretary's choice in the ScheduleDialog). Phone = the
-    // WhatsApp/SMS reminder; email = the same appointment confirmation over email —
-    // both go through the send-reminder Edge Function (secrets stay server-side).
-    const patient = patientById[req.patientId]
+    // Chain after a just-registered patient row (new caller) so the insert's RLS check
+    // sees the committed patient. Existing patients resolve immediately (no wait).
+    persist(afterPatientWrite(() => supabase.from('appointments').insert({
+      id: apptId, clinic_id: clinicId, patient_id: patientId, therapist_id: therapistId,
+      treatment_id: treatmentId, start: start.toISOString(), duration_min: tr.durationMin,
+      visit_type: tr.name, status: 'קבוע', reason: tr.name, source, created_by: userId ?? null,
+    })), 'bookAppointmentByStaff')
+    const patient = patientById[patientId]
     const therapist = therapistById[therapistId]
-    const sentEmail = !!(slot?.notifyEmail && patient?.email)
-    if (slot?.notify) {
-      supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId } }).catch(() => {})
-    }
-    if (sentEmail) {
-      supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId, channel: 'email' } }).catch(() => {})
-    }
-    // Surface the same success confirmation a patient sees on self-booking.
+    const sentEmail = !!(notifyEmail && patient?.email)
+    if (notify) supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId } }).catch(() => {})
+    if (sentEmail) supabase.functions.invoke('send-reminder', { body: { appointmentId: apptId, channel: 'email' } }).catch(() => {})
     setBookingConfirmation({
       appointment: appt,
       patientName: patient?.name ?? '',
@@ -596,10 +539,34 @@ export function DataProvider({ children }) {
       email: patient?.email ?? null,
       therapistName: therapist?.name ?? '',
       specialty: therapist?.specialty ?? '',
-      notifiedSms: !!slot?.notify,
+      notifiedSms: !!notify,
       notifiedEmail: sentEmail,
     })
     return appt
+  }
+
+  // --- SECRETARY "OPEN A REQUEST" (פתיחת בקשה) ---
+  // The secretary logs a request-to-treat straight into her own queue (NOT a task): patient
+  // + category (→ subject) + free-text detail (→ description) + an optional urgency. It's a
+  // kind='inquiry' request in status 'ממתין', so it appears in "בקשות הדורשות טיפול" alongside
+  // portal inquiries and is resolved the same way (mark handled / convert to task). source
+  // 'טלפון' distinguishes a desk-opened request from a portal one.
+  function openStaffRequest({ patientId, category = null, description = '', urgency = 'רגיל' }) {
+    const id = uuid()
+    const now = new Date()
+    const req = {
+      id, patientId: patientId || null, createdAt: now, updatedAt: now,
+      description: (description || '').trim(), preferredTherapistId: null, visitTypeHint: null,
+      preferredTime: 'גמיש', source: 'טלפון', status: 'ממתין', rejectionReason: null,
+      kind: 'inquiry', subject: category, staffNote: null, urgency: urgency || null, convertedTaskId: null,
+    }
+    setRequests((prev) => [req, ...prev])
+    persist(afterPatientWrite(() => supabase.from('requests').insert({
+      id, clinic_id: clinicId, patient_id: req.patientId, description: req.description,
+      preferred_time: 'גמיש', source: 'טלפון', status: 'ממתין', kind: 'inquiry',
+      subject: category, urgency: req.urgency,
+    })), 'openStaffRequest')
+    return req
   }
 
   function clearBookingConfirmation() {
@@ -619,7 +586,7 @@ export function DataProvider({ children }) {
       id, patientId, createdAt: now, updatedAt: now,
       description: (description || '').trim(), preferredTherapistId: null, visitTypeHint: null,
       preferredTime: 'גמיש', source: 'פורטל', status: 'ממתין', rejectionReason: null,
-      kind: 'inquiry', subject, staffNote: null, ai: null,
+      kind: 'inquiry', subject, staffNote: null,
     }
     setRequests((prev) => [req, ...prev])
     // Same ordering gate as submitRequest: a just-self-registered patient's insert must
@@ -665,17 +632,20 @@ export function DataProvider({ children }) {
     const noteParts = []
     if (req.description?.trim()) noteParts.push(req.description.trim())
     if (req.staffNote?.trim()) noteParts.push(`הערה פנימית: ${req.staffNote.trim()}`)
+    // Title: category (subject) + patient. Carry the request's triage fields into the task.
+    const patientName = req.patientId ? (patientById[req.patientId]?.name ?? '') : ''
     const task = {
-      id: uuid(), title: `פנייה מהפורטל — ${req.subject ?? ''}`.trim(),
+      id: uuid(), title: [req.subject || 'פנייה', patientName].filter(Boolean).join(' — '),
       patientId: req.patientId, assigneeId: null, createdBy: userId ?? null,
+      category: req.subject ?? null, urgency: req.urgency ?? null,
       createdAt: new Date(), due: new Date(), status: 'בטיפול', source: 'ידני',
       note: noteParts.join('\n\n'),
     }
     setTasks((prev) => [task, ...prev])
     persist(supabase.from('tasks').insert({
       id: task.id, clinic_id: clinicId, title: task.title, patient_id: task.patientId,
-      assignee_id: null, created_by: task.createdBy, due: task.due.toISOString(),
-      status: 'בטיפול', source: 'ידני', note: task.note,
+      assignee_id: null, created_by: task.createdBy, category: task.category, urgency: task.urgency,
+      due: task.due.toISOString(), status: 'בטיפול', source: 'ידני', note: task.note,
     }), 'convertInquiryToTask.task')
     // Link the request to its task so the patient view can later flip 'הומר למשימה' →
     // 'סגור' ("טופל") when the task completes (reflectConvertedTask).
@@ -686,34 +656,30 @@ export function DataProvider({ children }) {
     return task
   }
 
-  // Staff rejects a request, optionally with a note shown to the patient on their
-  // dashboard banner. updated_at is bumped by a DB trigger; mirror it locally so the
-  // patient's 7-day banner window is accurate without a reload.
-  function rejectRequest(requestId, reason = null) {
-    const rejectionReason = (reason || '').trim() || null
-    setRequests((prev) => prev.map((r) => (
-      r.id === requestId ? { ...r, status: 'נדחה', rejectionReason, updatedAt: new Date() } : r
-    )))
-    persist(supabase.from('requests').update({ status: 'נדחה', rejection_reason: rejectionReason }).eq('id', requestId), 'rejectRequest')
-  }
-
   // --- Status + tasks ---
   // Build the auto follow-up task that a no-show spawns (shared by the single and
-  // bulk resolution paths so the task shape stays defined in one place).
+  // bulk resolution paths so the task shape stays defined in one place). Its `due`
+  // equals its creation time — auto tasks behave like any other task: the card shows
+  // when it was created, and "overdue" is derived normally from the clinic's settings
+  // (overdueEnabled + overdueGraceHours), not a baked-in window.
   function makeNoShowFollowUp(appt) {
+    const now = new Date()
     return {
       id: uuid(), title: `פולו-אפ אי-הגעה — ${patientById[appt.patientId]?.name ?? ''}`,
-      patientId: appt.patientId, assigneeId: appt.therapistId, createdAt: new Date(),
-      sourceAt: appt.start, due: addHours(new Date(), AUTO_TASK_DUE_HOURS),
+      patientId: appt.patientId, assigneeId: appt.therapistId, createdAt: now,
+      sourceAt: appt.start, sourceApptId: appt.id, due: now,
       status: 'פתוח', source: 'אוטומציה', note: 'נוצר אוטומטית לאחר אי-הגעה. ליצור קשר ולתאם מחדש.',
     }
   }
   const followUpRow = (task) => ({
     id: task.id, clinic_id: clinicId, title: task.title, patient_id: task.patientId,
     assignee_id: task.assigneeId, source_at: task.sourceAt.toISOString(), due: task.due.toISOString(),
-    status: 'פתוח', source: 'אוטומציה', note: task.note,
+    status: 'פתוח', source: 'אוטומציה', note: task.note, source_appointment_id: task.sourceApptId ?? null,
   })
 
+  // Advance a visit's status (קבוע → הגיע → הסתיים). No-show is NOT handled here — it
+  // carries side-effects (a follow-up task + an undo affordance) and goes through
+  // markNoShow / revertNoShow below.
   function setAppointmentStatus(apptId, newStatus) {
     setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a)))
     // Therapists lack a direct UPDATE grant on appointments (RLS); they persist their
@@ -724,14 +690,50 @@ export function DataProvider({ children }) {
     } else {
       persist(supabase.from('appointments').update({ status: newStatus }).eq('id', apptId), 'setAppointmentStatus')
     }
-    if (newStatus === 'לא הגיע' && settings.followUpOnNoShow) {
-      const appt = appointments.find((a) => a.id === apptId)
-      if (appt) {
-        const task = makeNoShowFollowUp(appt)
-        setTasks((prev) => [task, ...prev])
-        persist(supabase.from('tasks').insert(followUpRow(task)), 'noShowFollowUp')
-      }
+  }
+
+  // Mark a single appointment as a no-show (front-desk action only). Flips the status,
+  // spawns the follow-up task, and raises an UNDO toast so a mis-click can be reversed
+  // immediately — the same reversal the board's "שחזר" control offers (revertNoShow).
+  function markNoShow(apptId) {
+    const appt = appointments.find((a) => a.id === apptId)
+    if (!appt) return
+    setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, status: 'לא הגיע' } : a)))
+    persist(supabase.from('appointments').update({ status: 'לא הגיע' }).eq('id', apptId), 'markNoShow')
+    let task = null
+    if (settings.followUpOnNoShow) {
+      task = makeNoShowFollowUp(appt)
+      setTasks((prev) => [task, ...prev])
+      persist(supabase.from('tasks').insert(followUpRow(task)), 'noShowFollowUp')
     }
+    const name = patientById[appt.patientId]?.name ?? ''
+    setToasts((prev) => [...prev, {
+      id: uuid(), kind: 'undo', title: `${name} סומן/ה כלא הגיע`,
+      subtitle: task ? 'נוצרה משימת פולו-אפ · אפשר לבטל' : 'אפשר לבטל',
+      undoApptId: apptId, duration: 8000,
+    }])
+  }
+
+  // Reverse a no-show (undo toast OR board "שחזר"). Restores the slot to 'קבוע' and
+  // removes the follow-up it spawned — but only if the desk hasn't already completed
+  // that task (never silently destroy work). A reverted PAST slot correctly re-enters
+  // the unresolved-review queue; a future slot returns to the active board.
+  function revertNoShow(apptId) {
+    const appt = appointments.find((a) => a.id === apptId)
+    if (!appt || appt.status !== 'לא הגיע') return
+    setAppointments((prev) => prev.map((a) => (a.id === apptId ? { ...a, status: 'קבוע' } : a)))
+    persist(supabase.from('appointments').update({ status: 'קבוע' }).eq('id', apptId), 'revertNoShow')
+    // Drop the auto follow-up this no-show spawned. Prefer the explicit appointment link;
+    // fall back to an open automation task for the same patient whose source time is this
+    // slot (covers no-shows created before the link column, or via the bulk path). Never
+    // remove a completed task.
+    const isOpenAuto = (t) => t.source === 'אוטומציה' && t.status !== 'הושלם'
+    const followUp =
+      tasks.find((t) => isOpenAuto(t) && t.sourceApptId === apptId) ||
+      tasks.find((t) => isOpenAuto(t) && !t.sourceApptId && t.patientId === appt.patientId
+        && t.sourceAt && appt.start && t.sourceAt.getTime() === appt.start.getTime())
+    if (followUp) deleteTask(followUp.id)
+    setToasts((prev) => prev.filter((t) => t.undoApptId !== apptId))
   }
 
   // Batch-resolve a backlog of unresolved past appointments as no-shows: one
@@ -785,27 +787,30 @@ export function DataProvider({ children }) {
     reflectConvertedTask(taskId, newStatus)
   }
 
-  function addTask({ title, patientId, assigneeId, due, note }) {
+  function addTask({ title, patientId, assigneeId, due, note, category = null, urgency = null }) {
     const task = {
       id: uuid(), title, patientId: patientId || null, assigneeId: assigneeId || null,
-      createdBy: userId ?? null,
+      createdBy: userId ?? null, category: category || null, urgency: urgency || null,
       createdAt: new Date(), due: due || new Date(), status: 'פתוח', source: 'ידני', note: note || '',
     }
     setTasks((prev) => [task, ...prev])
     persist(supabase.from('tasks').insert({
       id: task.id, clinic_id: clinicId, title, patient_id: task.patientId, assignee_id: task.assigneeId,
-      created_by: task.createdBy, due: task.due.toISOString(), status: 'פתוח', source: 'ידני', note: task.note,
+      created_by: task.createdBy, category: task.category, urgency: task.urgency,
+      due: task.due.toISOString(), status: 'פתוח', source: 'ידני', note: task.note,
     }), 'addTask')
   }
 
-  // Edit an existing task (title / assignee / due / note). Only the given keys are
-  // touched; maps camelCase patch keys to the DB columns.
+  // Edit an existing task (title / assignee / due / note / category / urgency). Only the
+  // given keys are touched; maps camelCase patch keys to the DB columns.
   function updateTask(id, patch) {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
     const row = {}
     if (patch.title !== undefined) row.title = patch.title
     if (patch.assigneeId !== undefined) row.assignee_id = patch.assigneeId
     if (patch.note !== undefined) row.note = patch.note
+    if (patch.category !== undefined) row.category = patch.category
+    if (patch.urgency !== undefined) row.urgency = patch.urgency
     if (patch.due !== undefined) row.due = patch.due instanceof Date ? patch.due.toISOString() : patch.due
     persist(supabase.from('tasks').update(row).eq('id', id), 'updateTask')
   }
@@ -872,15 +877,15 @@ export function DataProvider({ children }) {
   }
 
   const value = {
-    therapists, activeTherapists, bookableTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, settings,
-    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, treatmentsForTherapist, aiFor, classifyAsync,
+    therapists, activeTherapists, bookableTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, profiles, settings,
+    setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, profileById, treatmentsForTherapist,
     assignees, assigneeById,
     updateSettings, addTherapist, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient, devResetOnboarding,
-    bookAppointment, cancelAppointment, submitRequest, submitInquiry, updateInquiry, updateRequestNote, convertInquiryToTask, approveRequest, rejectRequest,
+    bookAppointment, bookAppointmentByStaff, openStaffRequest, cancelAppointment, submitInquiry, updateInquiry, updateRequestNote, convertInquiryToTask,
     bookingConfirmation, clearBookingConfirmation,
     toasts, dismissToast,
-    setAppointmentStatus, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
+    setAppointmentStatus, markNoShow, revertNoShow, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,
     fetchArchivedTasks, restoreTask,
   }
 

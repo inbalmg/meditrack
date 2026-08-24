@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarHeart, FilePlus2, LogOut, Plus, RefreshCw } from 'lucide-react'
+import { CalendarHeart, FilePlus2, LogOut, RefreshCw } from 'lucide-react'
 import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { clsx } from '../components/clsx.js'
+import { BrandLockup } from '../components/Logo.jsx'
 
 // Responsive patient portal.
 //   • Mobile (<md): full-screen — dark header on top, bottom tab bar.
@@ -39,11 +40,7 @@ export default function PatientLayout() {
       {/* Desktop top bar */}
       <header className="hidden md:block sticky top-0 z-20 bg-ink-900 text-white">
         <div className="h-16 px-6 flex items-center gap-6 max-w-4xl mx-auto w-full">
-          <div className="flex items-center gap-2">
-            <span className="grid place-items-center h-8 w-8 rounded-lg bg-teal-500"><Plus size={18} strokeWidth={3} /></span>
-            <span className="font-bold">MediTrack</span>
-            <span className="text-teal-300 text-xs">Clinic</span>
-          </div>
+          <BrandLockup variant="dark" size={32} />
           <nav className="flex items-center gap-1">
             {nav.map((item) => (
               <NavLink
@@ -82,11 +79,8 @@ export default function PatientLayout() {
       {/* Mobile header */}
       <header className="md:hidden bg-ink-900 text-white px-5 pt-6 pb-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="grid place-items-center h-8 w-8 rounded-lg bg-teal-500"><Plus size={18} strokeWidth={3} /></span>
-            <span className="font-bold">MediTrack</span>
-          </div>
-          <button onClick={handleLogout} className="text-teal-200/70 hover:text-white p-1.5"><LogOut size={18} /></button>
+          <BrandLockup variant="dark" size={32} />
+          <button onClick={handleLogout} aria-label="יציאה" title="יציאה" className="text-teal-200/70 hover:text-white p-1.5"><LogOut size={18} /></button>
         </div>
         <p className="mt-4 text-teal-200/70 text-sm">שלום,</p>
         <p className="text-xl font-bold">{displayName}</p>

@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw, ChevronDown, Archive } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { ROLES } from '../../session.jsx'
 import { Card, CardHeader, Button, Badge } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
-import { validateStaffName, isValidStaffRole, NAME_MAX, validateTherapistName, validateSpecialty, THERAPIST_NAME_MAX, SPECIALTY_MAX } from '../../lib/validation.js'
+import { validateStaffName, isValidStaffRole, NAME_MAX, validateTherapistName, validateSpecialty, THERAPIST_NAME_MAX, SPECIALTY_MAX, validateOverdueGraceHours, OVERDUE_GRACE_MIN, OVERDUE_GRACE_MAX } from '../../lib/validation.js'
 
 const THERAPIST_COLORS = ['#0d9488', '#2563eb', '#9333ea', '#f59e0b', '#ef4444', '#0ea5e9']
 const DURATIONS = [20, 30, 45, 60]
@@ -111,6 +111,23 @@ export default function Settings() {
               onChange={(v) => updateSettings({ followUpOnNoShow: v })}
               badge={<Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>}
             />
+          </div>
+
+          <div className="border-t border-slate-100 pt-4 space-y-4">
+            <ToggleRow
+              label="סימון משימות באיחור"
+              hint="צביעה אדומה וספירה של משימות פתוחות שעבר מועד היעד שלהן, בדשבורד ובדוחות"
+              checked={settings.overdueEnabled}
+              onChange={(v) => updateSettings({ overdueEnabled: v })}
+            />
+            <OverdueGraceRow
+              value={settings.overdueGraceHours}
+              disabled={!settings.overdueEnabled}
+              onCommit={(v) => updateSettings({ overdueGraceHours: v })}
+            />
+            <p className={clsx('text-xs text-slate-400', !settings.overdueEnabled && 'opacity-50')}>
+              משימה פתוחה נספרת כ״באיחור״ רק אחרי שחלף הזמן שנקבע ממועד היעד. 0 = סימון מיידי ברגע שהמועד עובר.
+            </p>
           </div>
         </div>
       </Card>
@@ -417,6 +434,50 @@ function ToggleRow({ label, hint, checked, onChange, badge, disabled }) {
           )}
         />
       </button>
+    </div>
+  )
+}
+
+// Overdue grace, in hours — text field with real validation (whole number, no
+// leading zeros, in range). Keeps its own draft so an invalid keystroke can be
+// shown with an error without corrupting the stored setting; only valid values
+// are committed. Re-syncs if the stored value changes elsewhere (e.g. reset).
+function OverdueGraceRow({ value, disabled, onCommit }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => { setText(String(value)) }, [value])
+  const { error } = validateOverdueGraceHours(text)
+
+  function handleChange(raw) {
+    setText(raw)
+    const res = validateOverdueGraceHours(raw)
+    if (!res.error) onCommit(res.value)
+  }
+
+  return (
+    <div className={clsx(disabled && 'opacity-50')}>
+      <div className="flex items-center justify-between gap-4">
+        <label htmlFor="overdue-grace" className="text-sm text-slate-700">סימון משימה כ״באיחור״</label>
+        <div className="flex items-center gap-2 shrink-0">
+          <input
+            id="overdue-grace"
+            type="text"
+            inputMode="numeric"
+            dir="ltr"
+            value={text}
+            disabled={disabled}
+            aria-invalid={!disabled && !!error}
+            min={OVERDUE_GRACE_MIN}
+            max={OVERDUE_GRACE_MAX}
+            onChange={(e) => handleChange(e.target.value)}
+            className={clsx(
+              'h-9 w-20 rounded-lg ring-1 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 disabled:bg-slate-50',
+              !disabled && error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+            )}
+          />
+          <span className="text-sm text-slate-500">שעות אחרי מועד היעד</span>
+        </div>
+      </div>
+      {!disabled && error && <p className="text-xs text-red-500 mt-1.5 text-left">{error}</p>}
     </div>
   )
 }

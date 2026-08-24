@@ -1,4 +1,4 @@
-import { LogIn, UserX, CheckCheck, Check } from 'lucide-react'
+import { UserCheck, UserX, CheckCheck, Check, RotateCcw } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { useSession } from '../session.jsx'
 import { Badge, Button } from './ui.jsx'
@@ -15,11 +15,26 @@ const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green',
 // `compact` renders icon-only buttons (with tooltips) so the controls fit in
 // tight spots like the dashboard "today" list without squeezing the name.
 export default function AppointmentActions({ appt, size = 'sm', compact = false, className = '' }) {
-  const { setAppointmentStatus, settings } = useData()
+  const { setAppointmentStatus, markNoShow, revertNoShow, settings } = useData()
   const { role } = useSession()
 
   const isTherapist = role?.id === 'therapist'
   const canAct = role?.canApprove || isTherapist
+
+  // A no-show can be reversed by the front desk (mis-click recovery): show the status
+  // badge plus a "שחזר" control that restores the slot and drops its follow-up task.
+  if (appt.status === 'לא הגיע' && role?.canApprove) {
+    return (
+      <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
+        <Badge tone={STATUS_TONE[appt.status]}>{appt.status}</Badge>
+        <Button variant="ghost" size={compact ? 'icon' : size} title="שחזר — בטל אי-הגעה"
+          onClick={() => revertNoShow(appt.id)}
+          className="text-slate-500 hover:bg-slate-100">
+          <RotateCcw size={15} /> {!compact && 'שחזר'}
+        </Button>
+      </div>
+    )
+  }
 
   // Terminal states, or no permission → just show the status.
   const terminal = appt.status === 'הסתיים' || appt.status === 'לא הגיע'
@@ -51,14 +66,14 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
     <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
       <Button variant="soft" size={btnSize} title="הגיע"
         onClick={() => setAppointmentStatus(appt.id, 'הגיע')}>
-        <LogIn size={15} /> {!compact && 'הגיע'}
+        <UserCheck size={15} /> {!compact && 'הגיע'}
       </Button>
       {/* No-show is a front-desk action only — therapists never mark it. */}
       {role?.canApprove && (
         <Button
           variant="ghost"
           size={btnSize}
-          onClick={() => setAppointmentStatus(appt.id, 'לא הגיע')}
+          onClick={() => markNoShow(appt.id)}
           title={compact ? 'לא הגיע' : noShowTitle}
           className="text-red-500 hover:bg-red-50"
         >

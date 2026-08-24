@@ -1,12 +1,11 @@
 import { useMemo } from 'react'
 import { isToday } from 'date-fns'
 import { Link } from 'react-router-dom'
-import { CalendarClock, Sparkles, ArrowLeft, Clock, ListChecks, CheckCircle2 } from 'lucide-react'
+import { CalendarClock, ArrowLeft, Clock, ListChecks, CheckCircle2 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
 import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
 import { hhmm, genderLabel } from '../../lib/format.js'
-import { classifyRequest } from '../../lib/aiClassifier.js'
 
 const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green', 'לא הגיע': 'red' }
 
@@ -107,11 +106,15 @@ export default function DoctorDay() {
 }
 
 function NextCard({ appt, patient }) {
-  const ai = classifyRequest({ description: appt.reason })
   return (
     <Card className="p-4 bg-gradient-to-l from-teal-600 to-teal-500 text-white ring-0">
       <div className="flex items-center gap-2 text-teal-50 text-sm font-medium mb-2">
         <Clock size={16} /> התור הבא
+        {appt.status === 'הגיע' && (
+          <span className="inline-flex items-center rounded-full bg-white/20 text-white text-xs font-semibold px-2 py-0.5">
+            הגיע
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
@@ -129,12 +132,6 @@ function NextCard({ appt, patient }) {
             <span className="text-teal-50/80">סיבת הפנייה: </span>
             <span className="font-medium">"{appt.reason}"</span>
           </p>
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-xs text-teal-50"><Sparkles size={13} /> תגיות AI:</span>
-            {ai.tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium">{tag}</span>
-            ))}
-          </div>
         </div>
         <Link to={`/doctor/visit/${appt.id}`} className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-white text-teal-700 font-medium px-4 h-9 hover:bg-teal-50 transition">
           פתיחת תיק מטופל <ArrowLeft size={16} />

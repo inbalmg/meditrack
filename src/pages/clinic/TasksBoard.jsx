@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ListChecks, Plus, Zap, User, Users, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive } from 'lucide-react'
+import { ListChecks, Plus, Zap, User, Users, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive, AlertTriangle } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
+import { URGENCY_OPTIONS, URGENCY_TONE, CATEGORY_OPTIONS } from '../../lib/triage.js'
 import UnresolvedAppointments from '../../components/UnresolvedAppointments.jsx'
 import TaskArchiveModal from '../../components/TaskArchiveModal.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
-import { friendlyDate, hhmm } from '../../lib/format.js'
+import { friendlyDate, hhmm, toClinicInput, clinicInputToDate } from '../../lib/format.js'
 import { isAfter, startOfDay, subDays } from 'date-fns'
 import { clsx } from '../../components/clsx.js'
 
@@ -42,12 +43,6 @@ function withinRange(t, range) {
   const days = DONE_RANGES.find((r) => r.key === range)?.days ?? 15
   const cutoff = days === 0 ? startOfDay(new Date()) : subDays(new Date(), days)
   return isAfter(anchor, cutoff)
-}
-
-// Date <-> <input type="datetime-local"> value (local time, minute precision).
-const toLocalInput = (d) => {
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 export default function TasksBoard() {
@@ -162,6 +157,11 @@ export default function TasksBoard() {
                         <div className="flex items-start justify-between gap-2">
                           <p className="font-medium text-slate-800 leading-snug min-w-0">{t.title}</p>
                           <div className="flex items-center gap-1 shrink-0">
+                            {t.urgency && t.urgency !== 'רגיל' && (
+                              <Badge tone={URGENCY_TONE[t.urgency]}>
+                                {t.urgency === 'דחוף' && <AlertTriangle size={12} />} {t.urgency}
+                              </Badge>
+                            )}
                             {t.source === 'אוטומציה' ? (
                               <Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>
                             ) : (
@@ -187,6 +187,7 @@ export default function TasksBoard() {
                         </div>
                         {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
                         <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+                          {t.category && <Badge tone="teal">{t.category}</Badge>}
                           <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
                           {assignee ? (
                             <span className="flex items-center gap-1">
@@ -239,15 +240,17 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
   // Default new tasks to the general/office pool (''); edits keep the task's assignee.
   const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
-  const [due, setDue] = useState(toLocalInput(initialDue))
+  const [category, setCategory] = useState(initial?.category ?? '')
+  const [urgency, setUrgency] = useState(initial?.urgency ?? 'רגיל')
+  const [due, setDue] = useState(toClinicInput(initialDue))
 
   // Due date must not fall in the past. Floor the picker at the start of today; for an
   // edit whose due already slipped into the past keep that value selectable so the task
   // stays fully editable (the user can still push it forward to today/future).
   const startToday = startOfDay(new Date())
   const dueFloor = isEdit && initialDue < startToday ? startOfDay(initialDue) : startToday
-  const minDue = toLocalInput(dueFloor)
-  const duePast = !due || new Date(due) < dueFloor
+  const minDue = toClinicInput(dueFloor)
+  const duePast = !due || clinicInputToDate(due) < dueFloor
 
   const therapists = assignees.filter((a) => a.kind === 'therapist')
   const office = assignees.filter((a) => a.kind !== 'therapist')
@@ -292,6 +295,19 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
             <span className="text-[11px] text-red-500">יש לבחור את היום הנוכחי או תאריך עתידי</span>
           )}
         </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500">קטגוריה</span>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className={clsx(inputCls, 'bg-white')}>
+            <option value="">— ללא —</option>
+            {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500">דחיפות</span>
+          <select value={urgency} onChange={(e) => setUrgency(e.target.value)} className={clsx(inputCls, 'bg-white')}>
+            {URGENCY_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </label>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -302,7 +318,7 @@ function TaskForm({ assignees, initial, onSubmit, onCancel }) {
       <div className="flex gap-2 mt-4">
         <Button
           disabled={!title.trim() || duePast}
-          onClick={() => onSubmit({ title: title.trim(), assigneeId, note: note.trim(), due: due ? new Date(due) : new Date() })}
+          onClick={() => onSubmit({ title: title.trim(), assigneeId, note: note.trim(), category: category || null, urgency: urgency || null, due: due ? clinicInputToDate(due) : new Date() })}
         >
           {isEdit ? <><Check size={16} /> שמירה</> : <><Plus size={16} /> הוספה</>}
         </Button>

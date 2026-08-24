@@ -4,7 +4,7 @@ import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { Avatar } from '../components/ui.jsx'
 import { clsx } from '../components/clsx.js'
-import logoUrl from '../assets/meditrack-logo.svg'
+import { BrandLockup } from '../components/Logo.jsx'
 
 export default function DoctorLayout() {
   const { role, logout } = useSession()
@@ -27,8 +27,8 @@ export default function DoctorLayout() {
     <div className="min-h-full flex bg-canvas">
       <aside className="hidden md:flex w-64 shrink-0 flex-col bg-ink-900 text-slate-300 sticky top-0 h-screen">
         <div className="flex items-center px-6 h-16 border-b border-white/5">
-          {/* Same high-res wordmark asset as the clinic/login views (identical logo across views). */}
-          <img src={logoUrl} alt="MediTrack Clinic" className="h-10 w-auto" />
+          {/* לוגו המותג החדש — זהה בכל התצוגות. */}
+          <BrandLockup variant="dark" />
         </div>
 
         <nav className="flex-1 px-3 pt-[19px] pb-4 space-y-1">
@@ -40,7 +40,7 @@ export default function DoctorLayout() {
               className={({ isActive }) =>
                 clsx(
                   'flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-medium transition',
-                  isActive ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-300 hover:bg-white/5 hover:text-white',
+                  isActive ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-300 hover:bg-white/5 hover:text-white',
                 )
               }
             >
@@ -75,6 +75,7 @@ export default function DoctorLayout() {
             {/* חזרה למסך הקודם */}
             <button
               onClick={() => navigate(-1)}
+              aria-label="חזרה"
               className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
             >
               <ArrowRight size={18} className="shrink-0" />
@@ -91,14 +92,14 @@ export default function DoctorLayout() {
               {new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
             </div>
             <div className="md:hidden">
-              <button onClick={handleLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500"><LogOut size={20} /></button>
+              <button onClick={handleLogout} aria-label="התנתקות" title="התנתקות" className="p-2 rounded-xl hover:bg-slate-100 text-slate-500"><LogOut size={20} /></button>
             </div>
           </div>
           <nav className="md:hidden flex gap-1 px-3 pb-2">
             {nav.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.end}
                 className={({ isActive }) => clsx('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium',
-                  isActive ? 'bg-teal-600 text-white' : 'text-slate-500 bg-white ring-1 ring-slate-200')}>
+                  isActive ? 'bg-teal-700 text-white' : 'text-slate-500 bg-white ring-1 ring-slate-200')}>
                 <item.icon size={16} /> {item.label}
               </NavLink>
             ))}

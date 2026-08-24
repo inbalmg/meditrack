@@ -131,6 +131,8 @@ export default function NewRequest() {
   const [date, setDate] = useState(firstDay)
   const [slot, setSlot] = useState(null)
   const [booked, setBooked] = useState(null)
+  // Wizard step (1–3): provider+treatment → date+time → confirm.
+  const [step, setStep] = useState(1)
   const canPrevWeek = weekStart > thisWeekStart
   const canNextWeek = weekStart < maxWeekStart
 
@@ -182,6 +184,7 @@ export default function NewRequest() {
     setSlot(null)
     setWeekStart(thisWeekStart)
     setDate(firstDay)
+    setStep(1)
   }
 
   // ---------- Booked confirmation ----------
@@ -270,7 +273,20 @@ export default function NewRequest() {
     setInquirySent(true)
   }
 
-  // ---------- Primary: self-booking ----------
+  // ---------- Primary: self-booking (Stepper wizard) ----------
+  // Wizard progress. The flow is shown one step at a time under a horizontal
+  // Stepper, matching the reference design:
+  //   1 · סוג טיפול ורופא   (therapist first, then treatment filtered to them)
+  //   2 · תאריך ושעה        (existing date-week nav + slot grid — unchanged)
+  //   3 · אישור             (existing contact fields + summary + confirm)
+  const step1Valid = !!therapistId && !!treatmentId
+  const step2Valid = !!slot
+  // Furthest step the user may jump to (never past an incomplete step).
+  const maxReachable = step1Valid ? (step2Valid ? 3 : 2) : 1
+  function goToStep(n) {
+    if (n >= 1 && n <= maxReachable) setStep(n)
+  }
+
   const firstName = (me?.name ?? '').trim().split(/\s+/)[0]
   return (
     <div className="animate-fade space-y-5 max-w-xl mx-auto">
@@ -287,20 +303,195 @@ export default function NewRequest() {
         </div>
       )}
 
-      {/* Not-sure entry — opens a human inquiry to the clinic team (no AI) */}
-      <button
-        onClick={() => setInquiryOpen(true)}
-        className="group w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right cursor-pointer shadow-sm transition hover:bg-teal-50 hover:ring-teal-300 hover:shadow-md"
-      >
-        <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={18} /></span>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-slate-800">צריכים עזרה או מידע נוסף?</p>
-          <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם בהקדם</p>
+      {/* Progress stepper */}
+      <Stepper
+        current={step}
+        maxReachable={maxReachable}
+        steps={['סוג טיפול ורופא', 'תאריך ושעה', 'אישור']}
+        onStepClick={goToStep}
+      />
+
+      <Card className="p-5">
+        {/* ---- Step 1 — provider + treatment ---- */}
+        {step === 1 && (
+          <div className="space-y-5">
+            {/* Not-sure entry — opens a human inquiry to the clinic team (no AI) */}
+            <button
+              onClick={() => setInquiryOpen(true)}
+              className="group w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right cursor-pointer shadow-sm transition hover:bg-teal-50 hover:ring-teal-300 hover:shadow-md"
+            >
+              <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-100 text-teal-600 shrink-0"><HelpCircle size={18} /></span>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-800">צריכים עזרה או מידע נוסף?</p>
+                <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם בהקדם</p>
+              </div>
+              <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:translate-x-0.5">
+                <ArrowRight size={16} />
+              </span>
+            </button>
+
+            {/* Provider */}
+            <div>
+              <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><User size={14} className="text-teal-600" /> בחירת מטפל/ת <RequiredMark /></label>
+              <div className="space-y-2">
+                {bookableTherapists.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => pickTherapist(t.id)}
+                    className={clsx(
+                      'w-full flex items-center gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
+                      therapistId === t.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
+                    )}
+                  >
+                    <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-800">{t.name}</p>
+                      <p className="text-xs text-slate-400">{t.specialty}</p>
+                    </div>
+                    {therapistId === t.id && <Check size={16} className="text-teal-600" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Treatment (filtered to provider) — revealed after a therapist is chosen */}
+            {therapistId && (
+              <div>
+                <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><HeartHandshake size={14} className="text-teal-600" /> בחירת סוג טיפול <RequiredMark /></label>
+                <div className="space-y-2">
+                  {treatmentsForTherapist(therapistId).map((tr) => (
+                    <button
+                      key={tr.id}
+                      onClick={() => pickTreatment(tr.id)}
+                      className={clsx(
+                        'w-full flex items-center justify-between gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
+                        treatmentId === tr.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
+                      )}
+                    >
+                      <span className="text-sm font-medium text-slate-800">{tr.name}</span>
+                      <Badge tone="slate"><Clock size={12} /> {tr.durationMin} דק׳</Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---- Step 2 — date + time ---- */}
+        {step === 2 && (
+          <div>
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><CalendarDays size={14} className="text-teal-600" /> תאריך</label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => shiftWeek(-1)}
+                    disabled={!canPrevWeek}
+                    title="שבוע קודם"
+                    className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                  <span className="text-[11px] text-slate-400 tabular-nums w-20 text-center">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
+                  <button
+                    type="button"
+                    onClick={() => shiftWeek(1)}
+                    disabled={!canNextWeek}
+                    title="שבוע הבא"
+                    className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
+                {workingDays.map((d) => {
+                  const active = isSameDay(d, date)
+                  return (
+                    <button
+                      key={d.toISOString()}
+                      onClick={() => { setDate(d); setSlot(null) }}
+                      className={clsx('shrink-0 w-16 rounded-xl px-2 py-2 text-center ring-1 transition',
+                        active ? 'ring-teal-500 bg-teal-600 text-white' : 'ring-slate-200 text-slate-700')}
+                    >
+                      <p className="text-[11px]">{isSameDay(d, new Date()) ? 'היום' : `יום ${dayName(d)}`}</p>
+                      <p className="text-sm font-bold tabular-nums">{shortDate(d)}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><Clock size={14} className="text-teal-600" /> שעה <span className="text-slate-400">· משבצת של {duration} דק׳ · אפור = תפוס</span></label>
+            <div className="grid grid-cols-4 gap-2">
+              {slots.map((s) => {
+                const isSel = slot && slot.hour === s.hour && slot.minute === s.minute
+                return (
+                  <button
+                    key={`${s.hour}:${s.minute}`}
+                    disabled={!s.available}
+                    onClick={() => setSlot({ hour: s.hour, minute: s.minute })}
+                    className={clsx('rounded-lg py-1.5 text-sm font-medium tabular-nums ring-1 transition',
+                      isSel && 'bg-teal-600 text-white ring-teal-600',
+                      !isSel && s.available && 'bg-white text-slate-600 ring-slate-200 hover:ring-teal-300',
+                      !s.available && 'bg-slate-100 text-slate-300 ring-slate-100 line-through cursor-not-allowed')}
+                  >
+                    {hhmm(s.start)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ---- Step 3 — confirm: booking summary + contact details ---- */}
+        {step === 3 && (
+          <div className="space-y-5">
+            {/* Booking summary — two-column grid: labels auto-size, every value
+                starts on the same vertical line. */}
+            <div className="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-4">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-2 text-sm">
+                <SummaryRow label="מטפל/ת">{therapistById[therapistId]?.name} · {therapistById[therapistId]?.specialty}</SummaryRow>
+                <SummaryRow label="טיפול">{treatment?.name} · {duration} דק׳</SummaryRow>
+                {slot && <SummaryRow label="מועד">יום {dayName(date)} {shortDate(date)} · {hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}</SummaryRow>}
+              </dl>
+            </div>
+
+            {/* Contact details, PRE-FILLED from the saved record and editable.
+                Only phone + email (name/birth-year/gender + consent stay onboarding-only);
+                any edit is persisted to the patients row on confirm. */}
+            <div>
+              <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><Phone size={14} className="text-teal-600" /> פרטים ליצירת קשר</label>
+              <ContactFields isNew={false} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
+            </div>
+          </div>
+        )}
+
+        {/* ---- Footer navigation ---- */}
+        <div className="flex items-center gap-2 mt-5">
+          {step > 1 && (
+            <Button variant="soft" size="lg" className="flex-1" onClick={() => setStep(step - 1)}>
+              <ChevronRight size={18} /> חזרה
+            </Button>
+          )}
+          {step === 1 && (
+            <Button size="lg" className="flex-1" disabled={!step1Valid} onClick={() => setStep(2)}>
+              המשך <ChevronLeft size={18} />
+            </Button>
+          )}
+          {step === 2 && (
+            <Button size="lg" className="flex-1" disabled={!step2Valid} onClick={() => setStep(3)}>
+              המשך <ChevronLeft size={18} />
+            </Button>
+          )}
+          {step === 3 && (
+            <Button size="lg" className="flex-1" disabled={!slot || !contactValid} onClick={confirm}>
+              <Check size={18} /> {slot ? `אישור — יום ${dayName(date)} ${hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}` : 'בחרו מועד'}
+            </Button>
+          )}
         </div>
-        <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:translate-x-0.5">
-          <ArrowRight size={16} />
-        </span>
-      </button>
+      </Card>
 
       {inquiryOpen && (
         <InquiryDialog
@@ -309,131 +500,6 @@ export default function NewRequest() {
           onSubmit={sendInquiry}
         />
       )}
-
-      {/* Step 1 — provider */}
-      <Step n={1} label="בחירת מטפל/ת" done={!!therapistId}>
-        <div className="space-y-2">
-          {bookableTherapists.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => pickTherapist(t.id)}
-              className={clsx(
-                'w-full flex items-center gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
-                therapistId === t.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
-              )}
-            >
-              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-slate-800">{t.name}</p>
-                <p className="text-xs text-slate-400">{t.specialty}</p>
-              </div>
-              {therapistId === t.id && <Check size={16} className="text-teal-600" />}
-            </button>
-          ))}
-        </div>
-      </Step>
-
-      {/* Step 2 — treatment (filtered to provider) */}
-      {therapistId && (
-        <Step n={2} label="בחירת טיפול" done={!!treatmentId}>
-          <div className="space-y-2">
-            {treatmentsForTherapist(therapistId).map((tr) => (
-              <button
-                key={tr.id}
-                onClick={() => pickTreatment(tr.id)}
-                className={clsx(
-                  'w-full flex items-center justify-between gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
-                  treatmentId === tr.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
-                )}
-              >
-                <span className="text-sm font-medium text-slate-800">{tr.name}</span>
-                <Badge tone="slate"><Clock size={12} /> {tr.durationMin} דק׳</Badge>
-              </button>
-            ))}
-          </div>
-        </Step>
-      )}
-
-      {/* Step 3 — date + time */}
-      {therapistId && treatmentId && (
-        <Step n={3} label="בחירת מועד" done={!!slot}>
-          <div className="mb-3">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><CalendarDays size={14} className="text-teal-600" /> תאריך</label>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => shiftWeek(-1)}
-                  disabled={!canPrevWeek}
-                  title="שבוע קודם"
-                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
-                >
-                  <ChevronRight size={15} />
-                </button>
-                <span className="text-[11px] text-slate-400 tabular-nums w-20 text-center">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
-                <button
-                  type="button"
-                  onClick={() => shiftWeek(1)}
-                  disabled={!canNextWeek}
-                  title="שבוע הבא"
-                  className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
-                >
-                  <ChevronLeft size={15} />
-                </button>
-              </div>
-            </div>
-            <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
-              {workingDays.map((d) => {
-                const active = isSameDay(d, date)
-                return (
-                  <button
-                    key={d.toISOString()}
-                    onClick={() => { setDate(d); setSlot(null) }}
-                    className={clsx('shrink-0 w-16 rounded-xl px-2 py-2 text-center ring-1 transition',
-                      active ? 'ring-teal-500 bg-teal-600 text-white' : 'ring-slate-200 text-slate-700')}
-                  >
-                    <p className="text-[11px]">{isSameDay(d, new Date()) ? 'היום' : `יום ${dayName(d)}`}</p>
-                    <p className="text-sm font-bold tabular-nums">{shortDate(d)}</p>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><Clock size={14} className="text-teal-600" /> שעה <span className="text-slate-400">· משבצת של {duration} דק׳ · אפור = תפוס</span></label>
-          <div className="grid grid-cols-4 gap-2">
-            {slots.map((s) => {
-              const isSel = slot && slot.hour === s.hour && slot.minute === s.minute
-              return (
-                <button
-                  key={`${s.hour}:${s.minute}`}
-                  disabled={!s.available}
-                  onClick={() => setSlot({ hour: s.hour, minute: s.minute })}
-                  className={clsx('rounded-lg py-1.5 text-sm font-medium tabular-nums ring-1 transition',
-                    isSel && 'bg-teal-600 text-white ring-teal-600',
-                    !isSel && s.available && 'bg-white text-slate-600 ring-slate-200 hover:ring-teal-300',
-                    !s.available && 'bg-slate-100 text-slate-300 ring-slate-100 line-through cursor-not-allowed')}
-                >
-                  {hhmm(s.start)}
-                </button>
-              )
-            })}
-          </div>
-        </Step>
-      )}
-
-      {/* Step 4 — contact details, PRE-FILLED from the saved record and editable.
-          Only phone + email (name/birth-year/gender + consent stay onboarding-only);
-          any edit is persisted to the patients row on confirm. */}
-      {therapistId && treatmentId && (
-        <Step n={4} label="פרטים ליצירת קשר" done={contactValid}>
-          <ContactFields isNew={false} name={name} setName={setName} phone={phone} setPhone={setPhone} birthYear={birthYear} setBirthYear={setBirthYear} gender={gender} setGender={setGender} email={email} setEmail={setEmail} />
-        </Step>
-      )}
-
-      {/* Confirm */}
-      <Button size="lg" className="w-full" disabled={!slot || !contactValid} onClick={confirm}>
-        <Check size={18} /> {slot ? `אישור — יום ${dayName(date)} ${hhmm(set(date, { hours: slot.hour, minutes: slot.minute }))}` : 'בחרו מועד'}
-      </Button>
     </div>
   )
 }
@@ -699,15 +765,45 @@ function InquiryDialog({ subjects, onClose, onSubmit }) {
   )
 }
 
-function Step({ n, label, done, children }) {
+// Horizontal progress stepper (RTL). Nodes: active = teal filled, completed = teal
+// with a check (and clickable to jump back), upcoming = muted. Connector lines fill
+// teal up to the current step. Compact + wraps-free on mobile.
+function Stepper({ current, maxReachable, steps, onStepClick }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <span className={clsx('grid place-items-center h-6 w-6 rounded-full text-xs font-bold',
-          done ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500')}>{done ? '✓' : n}</span>
-        <h3 className="font-semibold text-slate-700 text-sm">{label}</h3>
-      </div>
-      {children}
+    <div className="flex items-start">
+      {steps.map((label, i) => {
+        const n = i + 1
+        const isActive = n === current
+        const isDone = n < current
+        const canJump = n <= maxReachable && n !== current
+        const isLast = n === steps.length
+        return (
+          <div key={label} className="flex-1 flex flex-col items-center">
+            <div className="flex items-center w-full">
+              {/* trailing connector (to the right, toward earlier steps in RTL) */}
+              <span className={clsx('h-0.5 flex-1', n === 1 ? 'opacity-0' : (n <= current ? 'bg-teal-500' : 'bg-slate-200'))} />
+              <button
+                type="button"
+                onClick={() => canJump && onStepClick(n)}
+                disabled={!canJump}
+                aria-current={isActive ? 'step' : undefined}
+                className={clsx(
+                  'grid place-items-center h-8 w-8 shrink-0 rounded-full text-xs font-bold ring-1 transition',
+                  isActive && 'bg-teal-600 text-white ring-teal-600',
+                  isDone && 'bg-teal-100 text-teal-700 ring-teal-200',
+                  !isActive && !isDone && 'bg-slate-100 text-slate-400 ring-slate-200',
+                  canJump && 'cursor-pointer hover:ring-teal-400',
+                )}
+              >
+                {isDone ? <Check size={15} /> : n}
+              </button>
+              {/* leading connector (to the left, toward later steps in RTL) */}
+              <span className={clsx('h-0.5 flex-1', isLast ? 'opacity-0' : (n < current ? 'bg-teal-500' : 'bg-slate-200'))} />
+            </div>
+            <span className={clsx('mt-1.5 text-[11px] text-center leading-tight px-1', isActive ? 'font-semibold text-teal-700' : 'text-slate-500')}>{label}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -718,5 +814,16 @@ function Row({ label, children }) {
       <dt className="text-slate-500">{label}</dt>
       <dd>{children}</dd>
     </div>
+  )
+}
+
+// One row of the two-column summary grid: `dt`/`dd` are direct grid children so
+// the label column auto-sizes and every value column starts on the same line.
+function SummaryRow({ label, children }) {
+  return (
+    <>
+      <dt className="text-slate-500 whitespace-nowrap">{label}:</dt>
+      <dd className="font-medium text-slate-700">{children}</dd>
+    </>
   )
 }

@@ -4,32 +4,40 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
   ListTodo,
-  AlertTriangle,
   ChevronLeft,
   CheckCircle2,
   Clock,
-  Plus,
   Info,
   UserX,
   ClipboardList,
+  CalendarPlus,
+  ListPlus,
+  AlertTriangle,
+  ListFilter,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
 import { Card, CardHeader, Kpi, Badge, Empty } from '../../components/ui.jsx'
 import RequestRow, { REQ_COLS } from '../../components/RequestRow.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
-import PhoneRequestDialog from '../../components/PhoneRequestDialog.jsx'
+import QuickBookDialog from '../../components/QuickBookDialog.jsx'
+import EscalationDialog from '../../components/EscalationDialog.jsx'
 import { hhmm, relativeFromNow } from '../../lib/format.js'
 import { useNow } from '../../lib/useNow.js'
 import { isUnresolvedPast, selectUnresolved } from '../../lib/appointments.js'
+import { isTaskOverdue } from '../../lib/tasks.js'
 import { clsx } from '../../components/clsx.js'
 
 // Demo greeting name — in production this comes from the authenticated user.
-const DEMO_STAFF_NAME = 'מיכל'
+const DEMO_STAFF_NAME = 'רונית'
 // One-line onboarding explanation of why this queue is short (exceptions only).
 // Lives in the header info tooltip + the empty state instead of a fixed paragraph.
 const QUEUE_HINT =
-  'רוב הבקשות עצמיות ומשובצות אוטומטית ביומן — כאן רק מקרים שדורשים טיפול אנושי (הפניה דחופה/טלפון)'
+  'רוב ההזמנות עצמיות ומשובצות אוטומטית ביומן — כאן רק פניות אנושיות מהפורטל או פניות טלפוניות'
 
 function greetingFor(date) {
   const h = date.getHours()
@@ -52,10 +60,12 @@ function buildSummary({ appts, pending, urgent }) {
 }
 
 export default function Dashboard() {
-  const { requests, appointments, tasks, patientById, therapistById } = useData()
+  const { requests, appointments, tasks, patientById, therapistById, settings } = useData()
   const { role } = useSession()
   const navigate = useNavigate()
-  const [phoneOpen, setPhoneOpen] = useState(false)
+  // Desk launcher modals (moved here from the global header, into the metrics row).
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [escalateOpen, setEscalateOpen] = useState(false)
   // Requests the user has opened this session → "read" (drops the blue dot + count).
   const [openedIds, setOpenedIds] = useState(() => new Set())
   const markRead = (id) =>
@@ -64,9 +74,16 @@ export default function Dashboard() {
   // filter was switched on. Snapshotting keeps rows from vanishing as opening
   // one marks it read — the table stays stable until the filter is cleared.
   const [unreadFilter, setUnreadFilter] = useState(null)
-  // Urgent-only filter chip + "show all" toggle for the top-5 preview.
+  // "Urgent only" filter chip (requests marked urgency='דחוף').
   const [urgentFilter, setUrgentFilter] = useState(false)
   const [showAllRequests, setShowAllRequests] = useState(false)
+  // Sortable request-table columns. Default: newest received on top. Dates default
+  // to desc (newest first), text columns to asc (א→ת); clicking the active column
+  // toggles direction.
+  const SORT_DEFAULT_DIR = { received: 'desc', patient: 'asc', visitType: 'asc' }
+  const [sort, setSort] = useState({ key: 'received', dir: 'desc' })
+  const toggleSort = (key) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: SORT_DEFAULT_DIR[key] }))
 
   const requestsRef = useRef(null)
   const tasksRef = useRef(null)
@@ -85,17 +102,24 @@ export default function Dashboard() {
     [requests],
   )
   const unreadCount = pending.filter((r) => !openedIds.has(r.id)).length
-  // Urgent applies to AI-classified booking requests only; inquiries have no ai payload.
-  const urgentCount = pending.filter((r) => r.ai?.urgentFlag).length
+  const urgentCount = pending.filter((r) => r.urgency === 'דחוף').length
   // Apply the active filter chips (new / urgent) to the queue.
   let filteredPending = pending
   if (unreadFilter) filteredPending = filteredPending.filter((r) => unreadFilter.has(r.id))
-  if (urgentFilter) filteredPending = filteredPending.filter((r) => r.ai?.urgentFlag)
+  if (urgentFilter) filteredPending = filteredPending.filter((r) => r.urgency === 'דחוף')
+  // Apply the active column sort (patient / received / subject) before slicing.
+  const dirMul = sort.dir === 'asc' ? 1 : -1
+  const sortedPending = [...filteredPending].sort((a, b) => {
+    if (sort.key === 'received') return (a.createdAt - b.createdAt) * dirMul
+    const av = sort.key === 'patient' ? (patientById[a.patientId]?.name ?? '') : (a.subject ?? '')
+    const bv = sort.key === 'patient' ? (patientById[b.patientId]?.name ?? '') : (b.subject ?? '')
+    return av.localeCompare(bv, 'he') * dirMul
+  })
   // The table shows the newest 5; a "show all" toggle reveals the rest.
   const REQUESTS_PREVIEW = 5
-  const displayedPending = showAllRequests ? filteredPending : filteredPending.slice(0, REQUESTS_PREVIEW)
-  // The two chips are single-select: turning one on clears the other, and clicking
-  // an active chip toggles it off (back to showing all).
+  const displayedPending = showAllRequests ? sortedPending : sortedPending.slice(0, REQUESTS_PREVIEW)
+  // The two chips are single-select: turning one on clears the other; clicking the
+  // active chip toggles it off (back to showing all).
   const toggleUnreadFilter = () =>
     setUnreadFilter((f) => {
       if (f) return null
@@ -113,11 +137,11 @@ export default function Dashboard() {
   const todayTasks = useMemo(
     () =>
       tasks
-        .filter((t) => t.status !== 'הושלם' && (isToday(t.due) || t.due < now))
-        .sort((a, b) => (a.due < now ? 0 : 1) - (b.due < now ? 0 : 1) || a.due - b.due),
-    [tasks, now],
+        .filter((t) => t.status !== 'הושלם' && (isToday(t.due) || isTaskOverdue(t, now, settings)))
+        .sort((a, b) => (isTaskOverdue(a, now, settings) ? 0 : 1) - (isTaskOverdue(b, now, settings) ? 0 : 1) || a.due - b.due),
+    [tasks, now, settings],
   )
-  const overdueCount = todayTasks.filter((t) => t.due < now).length
+  const overdueCount = todayTasks.filter((t) => isTaskOverdue(t, now, settings)).length
 
   // Today's schedule, grouped by start time so parallel appointments (several
   // therapists at once) share a single time label.
@@ -140,10 +164,14 @@ export default function Dashboard() {
   // the rest of today's appointments (finished / no-show / unmarked) are the context.
   const todayTotal = todayAppts.length
   const todayDone = todayTotal - visibleCount
-  // Today's completed visits stay on the board all day (muted) so the desk keeps a
-  // record of what already happened — they're context, not part of the "remaining" count.
-  const completedToday = useMemo(() => todayAppts.filter((a) => a.status === 'הסתיים'), [todayAppts])
-  const timelineToday = useMemo(() => [...visibleToday, ...completedToday], [visibleToday, completedToday])
+  // Today's finished visits stay on the board all day (muted) so the desk keeps a record
+  // of what already happened — completed AND no-shows. They're context, not part of the
+  // "remaining" count, and a no-show row keeps its "שחזר" (revert) control for mis-clicks.
+  const resolvedToday = useMemo(
+    () => todayAppts.filter((a) => a.status === 'הסתיים' || a.status === 'לא הגיע'),
+    [todayAppts],
+  )
+  const timelineToday = useMemo(() => [...visibleToday, ...resolvedToday], [visibleToday, resolvedToday])
   const todayGroups = useMemo(() => {
     const map = new Map()
     for (const a of timelineToday) {
@@ -175,52 +203,74 @@ export default function Dashboard() {
       </div>
 
 
-      {/* Prioritised summary — 4 balanced tiles, RTL right→left:
-          בקשות לאישור · תורים שלא סומנו · משימות להיום · תורים להיום. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Kpi
-          compact
-          label="בקשות לאישור"
-          value={pending.length}
-          icon={ClipboardList}
-          tone="blue"
-          chevron={false}
-          onClick={() => scrollTo(requestsRef)}
-        />
-        <Kpi
-          compact
-          label="תורים שלא סומנו"
-          value={unresolvedCount}
-          icon={UserX}
-          tone={unresolvedCount > 0 ? 'red' : 'slate'}
-          onClick={() => navigate('/clinic/tasks', { state: { focus: 'unresolved' } })}
-        />
-        <Kpi
-          compact
-          label="משימות להיום"
-          value={todayTasks.length}
-          delta={overdueCount ? `· ${overdueCount} באיחור` : ''}
-          deltaTone="red"
-          icon={ListTodo}
-          tone="amber"
-          chevron={false}
-          onClick={() => scrollTo(tasksRef)}
-        />
-        <Kpi
-          compact
-          label="תורים להיום"
-          value={visibleCount}
-          sub={
-            todayTotal === 0
-              ? undefined
-              : visibleCount === 0
-                ? `כל ${todayTotal} התורים הסתיימו`
-                : `מתוך ${todayTotal} להיום (${todayDone} הסתיימו)`
-          }
-          icon={CalendarDays}
-          tone="slate"
-          onClick={() => navigate('/clinic/calendar')}
-        />
+      {/* Metrics row (RTL right→left): 4 KPI tiles on the right, desk-action buttons on the
+          left. On desktop the actions sit as a column filling the row height; on small
+          screens the row wraps to a stack (KPIs on top, actions as a full-width row below). */}
+      <div className="flex flex-col lg:flex-row lg:items-stretch gap-3">
+        {/* 4 balanced tiles — shrunk to give room to the action buttons. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-1 min-w-0">
+          <Kpi
+            compact
+            label="בקשות לאישור"
+            value={pending.length}
+            icon={ClipboardList}
+            tone="blue"
+            chevron={false}
+            onClick={() => scrollTo(requestsRef)}
+          />
+          <Kpi
+            compact
+            label="משימות להיום"
+            value={todayTasks.length}
+            delta={overdueCount ? `· ${overdueCount} באיחור` : ''}
+            deltaTone="red"
+            icon={ListTodo}
+            tone="amber"
+            chevron={false}
+            onClick={() => scrollTo(tasksRef)}
+          />
+          <Kpi
+            compact
+            label="תורים להיום"
+            value={visibleCount}
+            sub={
+              todayTotal === 0
+                ? undefined
+                : visibleCount === 0
+                  ? `כל ${todayTotal} התורים הסתיימו`
+                  : `מתוך ${todayTotal} להיום (${todayDone} הסתיימו)`
+            }
+            icon={CalendarDays}
+            tone="slate"
+            onClick={() => navigate('/clinic/calendar')}
+          />
+          <Kpi
+            compact
+            label="תורים שלא סומנו"
+            value={unresolvedCount}
+            icon={UserX}
+            tone={unresolvedCount > 0 ? 'red' : 'slate'}
+            onClick={() => navigate('/clinic/tasks', { state: { focus: 'unresolved' } })}
+          />
+        </div>
+
+        {/* Desk actions — quick direct booking + open a request-to-treat. */}
+        {role.canApprove && (
+          <div className="flex flex-row lg:flex-col gap-2 shrink-0 lg:w-44">
+            <button
+              onClick={() => setQuickOpen(true)}
+              className="flex-1 lg:flex-none inline-flex items-center justify-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 transition"
+            >
+              <CalendarPlus size={16} className="shrink-0" /> קביעה מהירה
+            </button>
+            <button
+              onClick={() => setEscalateOpen(true)}
+              className="flex-1 lg:flex-none inline-flex items-center justify-center gap-1.5 rounded-2xl bg-white px-3 py-2.5 text-sm font-semibold text-teal-700 ring-1 ring-teal-200 hover:bg-teal-50 transition"
+            >
+              <ListPlus size={16} className="shrink-0" /> פתיחת בקשה
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6 items-start">
@@ -236,66 +286,53 @@ export default function Dashboard() {
                 <h3 className="font-semibold text-white truncate">בקשות הדורשות טיפול</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* Urgent filter chip — sits to the right of the "new" chip (RTL). */}
+                {(urgentCount > 0 || urgentFilter || (pending.length > 0 && (unreadCount > 0 || unreadFilter))) && (
+                  <ListFilter size={15} className="text-slate-400 shrink-0" />
+                )}
+                {/* Urgent-only filter chip — toggles the table to urgent requests. */}
                 {(urgentCount > 0 || urgentFilter) && (
-                  <button
-                    type="button"
-                    aria-pressed={urgentFilter}
+                  <FilterChip
+                    active={urgentFilter}
                     onClick={toggleUrgentFilter}
-                    title={urgentFilter ? 'הצג את כל הבקשות' : 'סנן לבקשות דחופות בלבד'}
-                    className={clsx(
-                      'inline-flex items-center gap-1.5 rounded-full px-3 h-8 text-sm font-medium ring-1 transition',
-                      urgentFilter
-                        ? 'bg-red-600 text-white ring-red-500 hover:bg-red-700'
-                        : 'bg-white/10 text-white ring-white/15 hover:bg-white/20',
-                    )}
+                    activeClass="bg-red-500 text-white ring-red-300 shadow-sm"
+                    title={urgentFilter ? 'בטל סינון — הצג את כל הבקשות' : 'סנן לבקשות דחופות בלבד'}
+                    icon={<AlertTriangle size={13} className="shrink-0" />}
                   >
-                    <AlertTriangle size={13} className="shrink-0" />
                     {urgentCount} {urgentCount === 1 ? 'דחופה' : 'דחופות'}
-                  </button>
+                  </FilterChip>
                 )}
                 {/* New/unread filter chip — toggles the table to new requests only. */}
                 {pending.length > 0 && (unreadCount > 0 || unreadFilter) && (
-                  <button
-                    type="button"
-                    aria-pressed={!!unreadFilter}
+                  <FilterChip
+                    active={!!unreadFilter}
                     onClick={toggleUnreadFilter}
-                    title={unreadFilter ? 'הצג את כל הבקשות' : 'סנן לבקשות חדשות בלבד'}
-                    className={clsx(
-                      'inline-flex items-center gap-1.5 rounded-full px-3 h-8 text-sm font-medium ring-1 transition',
-                      unreadFilter
-                        ? 'bg-blue-600 text-white ring-blue-500 hover:bg-blue-700'
-                        : 'bg-white/10 text-white ring-white/15 hover:bg-white/20',
-                    )}
+                    activeClass="bg-blue-500 text-white ring-blue-300 shadow-sm"
+                    title={unreadFilter ? 'בטל סינון — הצג את כל הבקשות' : 'סנן לבקשות חדשות בלבד'}
+                    icon={<span className="h-1.5 w-1.5 rounded-full bg-current shrink-0" />}
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-white shrink-0" />
                     {unreadCount} {unreadCount === 1 ? 'חדשה' : 'חדשות'}
-                  </button>
-                )}
-                {role.canApprove && (
-                  <button
-                    onClick={() => setPhoneOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-transparent hover:bg-teal-400/10 text-teal-300 ring-1 ring-teal-400 px-3 h-8 text-sm font-medium transition"
-                  >
-                    <Plus size={15} /> בקשה טלפונית
-                  </button>
+                  </FilterChip>
                 )}
               </div>
             </div>
 
             <div className="overflow-x-auto scroll-thin no-gutter">
               <div className="min-w-[520px]">
-                {/* Column headers. The patient header mirrors the row's dot + gap
-                    spacer so "מטופל" lines up vertically with the names below. */}
+                {/* Column headers. The patient header mirrors the row's leading urgency-icon
+                    slot + gap so "מטופל" lines up vertically with the names below. */}
                 <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-sm font-semibold text-slate-600">
-                  <div className={clsx(REQ_COLS.patient, 'flex items-center gap-2')}>
-                    <span className="h-2 w-2 shrink-0" />
-                    מטופל
-                  </div>
-                  <div className={REQ_COLS.received}>התקבלה</div>
-                  <div className={REQ_COLS.visitType}>סוג ביקור</div>
+                  <SortHeader
+                    colClass={clsx(REQ_COLS.patient, 'gap-2')}
+                    label="מטופל"
+                    sortKey="patient"
+                    sort={sort}
+                    onSort={toggleSort}
+                    leading={<span className="w-4 shrink-0" />}
+                  />
+                  <SortHeader colClass={clsx(REQ_COLS.received, 'gap-1.5')} label="התקבלה" sortKey="received" sort={sort} onSort={toggleSort} />
+                  <SortHeader colClass={clsx(REQ_COLS.visitType, 'gap-1.5')} label="נושא" sortKey="visitType" sort={sort} onSort={toggleSort} />
                   <div className={REQ_COLS.action} />
-                  <div className={REQ_COLS.chevron} />
+                  <div className={clsx(REQ_COLS.chevron, 'mr-3')} />
                 </div>
                 <div>
                   {filteredPending.length === 0 ? (
@@ -349,7 +386,7 @@ export default function Dashboard() {
                 <Empty icon={CheckCircle2} title="אין משימות להיום" />
               ) : (
                 todayTasks.map((t) => {
-                  const overdue = t.due < now
+                  const overdue = isTaskOverdue(t, now, settings)
                   const dot = overdue
                     ? 'bg-red-500'
                     : t.source === 'אוטומציה'
@@ -442,20 +479,21 @@ export default function Dashboard() {
                       {group.appts.map((a, i) => {
                         const p = patientById[a.patientId]
                         const t = therapistById[a.therapistId]
-                        // Completed visits stay listed but muted (record, not "to-do").
-                        const done = a.status === 'הסתיים'
+                        // Resolved visits (completed or no-show) stay listed but muted
+                        // (record, not "to-do").
+                        const muted = a.status === 'הסתיים' || a.status === 'לא הגיע'
                         return (
                           <div
                             key={a.id}
                             className={clsx(
                               'flex items-center gap-2',
                               i > 0 && 'mt-2 pt-2 border-t border-slate-100',
-                              done && 'opacity-60',
+                              muted && 'opacity-60',
                             )}
                           >
                             <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                             <div className="flex-1 min-w-0">
-                              <p className={clsx('text-sm font-medium truncate', done ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
+                              <p className={clsx('text-sm font-medium truncate', muted ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
                               <p className="text-xs text-slate-600 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
                             </div>
                             <AppointmentActions appt={a} compact />
@@ -471,8 +509,61 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {phoneOpen && <PhoneRequestDialog onClose={() => setPhoneOpen(false)} />}
+      {/* Desk launcher modals. */}
+      {quickOpen && <QuickBookDialog onClose={() => setQuickOpen(false)} />}
+      {escalateOpen && <EscalationDialog onClose={() => setEscalateOpen(false)} />}
     </div>
+  )
+}
+
+// A toggle filter chip in the requests-board header (dark bar). Reads as an interactive
+// tab/chip — outlined + hover when off, filled + an ✕ (clear) when on — not a static badge.
+// A clickable column header for the requests table. Shows a neutral ArrowUpDown
+// until it's the active sort column, then ArrowUp/ArrowDown by direction. The button
+// spans the full column width (no horizontal padding/margin) so its label lines up
+// exactly with the data cell below, and the hover teal wash fills the whole column.
+function SortHeader({ colClass, label, sortKey, sort, onSort, leading }) {
+  const active = sort.key === sortKey
+  const Icon = !active ? ArrowUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      aria-label={`מיין לפי ${label}`}
+      title={`מיין לפי ${label}`}
+      className={clsx(
+        colClass,
+        'group flex items-center py-0.5 rounded-md text-right font-semibold cursor-pointer select-none transition',
+        'hover:bg-teal-50/60 hover:text-teal-700',
+        active ? 'text-teal-700' : 'text-slate-600',
+      )}
+    >
+      {leading}
+      <span className="truncate">{label}</span>
+      <Icon
+        size={13}
+        className={clsx('shrink-0 transition', active ? 'text-teal-600' : 'text-slate-400 group-hover:text-teal-600')}
+      />
+    </button>
+  )
+}
+
+function FilterChip({ active, onClick, activeClass, title, icon, children }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      title={title}
+      className={clsx(
+        'inline-flex items-center gap-1.5 rounded-full h-8 pr-3 pl-2.5 text-xs font-semibold ring-1 transition cursor-pointer select-none',
+        active ? activeClass : 'bg-white/10 text-slate-100 ring-white/25 hover:bg-white/20 hover:ring-white/50',
+      )}
+    >
+      {icon}
+      <span className="whitespace-nowrap">{children}</span>
+      {active && <X size={13} className="shrink-0 opacity-90" />}
+    </button>
   )
 }
 

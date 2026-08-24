@@ -4,6 +4,7 @@ import { startOfDay, subDays, addDays } from 'date-fns'
 import { useData } from '../../data/store.jsx'
 import { Card, CardHeader, Kpi, Avatar, Empty } from '../../components/ui.jsx'
 import { isUnresolvedPast } from '../../lib/appointments.js'
+import { isTaskOverdue } from '../../lib/tasks.js'
 import { useNow } from '../../lib/useNow.js'
 import { dayName } from '../../lib/format.js'
 import { VISIT_TYPES } from '../../data/seed.js'
@@ -20,7 +21,7 @@ function formatDuration(ms) {
 }
 
 export default function Reports() {
-  const { appointments, tasks, assignees, assigneeById, activeTherapists } = useData()
+  const { appointments, tasks, assignees, assigneeById, activeTherapists, settings } = useData()
   const now = useNow()
 
   // Manager's one active control: scope the appointment analytics (KPIs + charts
@@ -91,10 +92,11 @@ export default function Reports() {
   const noShowTrend = [24, 19, 15, noShowRate]
 
   // --- Task analytics ---
-  // Overdue rule matches the clinic Dashboard: not done AND past its due date.
+  // Overdue rule matches the clinic Dashboard: not done AND past its due date
+  // by more than the clinic's configured grace window (lib/tasks.js).
   const taskStats = useMemo(() => {
     const open = tasks.filter((t) => t.status !== 'הושלם')
-    const overdue = open.filter((t) => t.due < now)
+    const overdue = open.filter((t) => isTaskOverdue(t, now, settings))
     const completed = tasks.filter((t) => t.status === 'הושלם')
     const completionRate = tasks.length ? Math.round((completed.length / tasks.length) * 100) : 0
 
@@ -109,21 +111,21 @@ export default function Reports() {
       : 0
 
     return { open: open.length, overdue: overdue.length, completionRate, avgMs, onTimePct }
-  }, [tasks, now])
+  }, [tasks, now, settings])
 
   // Workload per assignee: open tasks (overdue highlighted), busiest first. An
   // "ללא אחראי" bucket collects unassigned open tasks so nothing is invisible.
   const workload = useMemo(() => {
     const rows = assignees.map((a) => {
       const mine = tasks.filter((t) => t.assigneeId === a.id && t.status !== 'הושלם')
-      return { id: a.id, name: a.name, initials: a.initials, color: a.color, open: mine.length, overdue: mine.filter((t) => t.due < now).length }
+      return { id: a.id, name: a.name, initials: a.initials, color: a.color, open: mine.length, overdue: mine.filter((t) => isTaskOverdue(t, now, settings)).length }
     })
     const orphan = tasks.filter((t) => !t.assigneeId && t.status !== 'הושלם')
     if (orphan.length) {
-      rows.push({ id: 'none', name: 'ללא אחראי', initials: '—', color: '#94a3b8', open: orphan.length, overdue: orphan.filter((t) => t.due < now).length })
+      rows.push({ id: 'none', name: 'ללא אחראי', initials: '—', color: '#94a3b8', open: orphan.length, overdue: orphan.filter((t) => isTaskOverdue(t, now, settings)).length })
     }
     return rows.filter((r) => r.open > 0).sort((a, b) => b.open - a.open)
-  }, [tasks, assignees, now])
+  }, [tasks, assignees, now, settings])
   const maxOpen = workload.reduce((m, r) => Math.max(m, r.open), 0) || 1
 
   // Completion throughput: tasks completed per day over the last 7 days.
@@ -161,6 +163,15 @@ export default function Reports() {
           )}
         </p>
       </Card>
+
+      {/* ── Appointments ── (כותרת סקשן h2 מקבילה ל"משימות" — מונעת דילוג h1→h3
+          בכרטיסי הניתוח ומיישרת את מבנה הכותרות של הדף, WCAG 1.3.1) */}
+      <div className="pt-2">
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <Clock size={20} className="text-teal-600" /> תורים
+        </h2>
+        <p className="text-slate-500 text-sm mt-0.5">תפוסה, אי-הגעות ופילוח סוגי ביקור</p>
+      </div>
 
       {/* Therapist filter — scopes the appointment analytics below (KPIs + charts).
           The AI summary above, the data-integrity notice and the tasks section stay clinic-wide. */}

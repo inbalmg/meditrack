@@ -1,47 +1,88 @@
 /**
- * Logo — סמל MediTrack כ-SVG וקטורי (חד ב-DPI כלשהו, בניגוד ל-PNG שמטשטש בקטן).
+ * Logo — סמל MediTrack Clinic החדש (מותג "logo 4a") כ-SVG וקטורי חד בכל DPI.
  *
- * `CrossMark` — סמל הצלב הרפואי המעוגל בטורקיז המותג (#06A5A6), מבוסס אותו
- * וקטור של ה-favicon. `BrandLockup` — הסמל + שם האפליקציה כטקסט חי (חד לגמרי).
+ * `CrossMark` — הסמל: ריבוע-מעוגל (squircle) בגרדיאנט טורקיז, כשהצלב הרפואי,
+ *   קו-כותרת היומן וטבעות הכריכה חתוכים כ**שטח שלילי** (mask) — ולכן הסמל שקוף
+ *   במקום הצלב ויושב על כל רקע. `BrandLockup` — הסמל + שם האפליקציה כטקסט חי.
+ *
+ * מקור נכסי המותג: `src/assets/brand/` (README + SVG לרקע כהה/בהיר + רכיבי React).
+ * צבעים: gradient #5FE3D1→#0D8FA2 · CLINIC accent #2DD4BF(כהה)/#0F9488(בהיר) · גופן Poppins.
  */
+import { useId } from 'react'
 
-const TEAL = '#06A5A6'
+// גופן ה-wordmark של המותג (Poppins נטען ב-index.html), עם Heebo כחלופה.
+const BRAND_FONT = "'Poppins', 'Heebo', Helvetica, Arial, sans-serif"
 
-// גאומטריה זהה ל-public/meditrack-favicon.svg (viewBox 48×48): טבעת-צלב מעוגלת + נקודת מרכז.
-const OUTER =
-  'M 14.50 6.50 Q 14.50 2.00 19.00 2.00 L 29.00 2.00 Q 33.50 2.00 33.50 6.50 L 33.50 11.50 Q 33.50 14.50 36.50 14.50 L 41.50 14.50 Q 46.00 14.50 46.00 19.00 L 46.00 29.00 Q 46.00 33.50 41.50 33.50 L 36.50 33.50 Q 33.50 33.50 33.50 36.50 L 33.50 41.50 Q 33.50 46.00 29.00 46.00 L 19.00 46.00 Q 14.50 46.00 14.50 41.50 L 14.50 36.50 Q 14.50 33.50 11.50 33.50 L 6.50 33.50 Q 2.00 33.50 2.00 29.00 L 2.00 19.00 Q 2.00 14.50 6.50 14.50 L 11.50 14.50 Q 14.50 14.50 14.50 11.50 Z'
-const INNER =
-  'M 19.50 10.00 Q 19.50 7.00 22.50 7.00 L 25.50 7.00 Q 28.50 7.00 28.50 10.00 L 28.50 17.50 Q 28.50 19.50 30.50 19.50 L 38.00 19.50 Q 41.00 19.50 41.00 22.50 L 41.00 25.50 Q 41.00 28.50 38.00 28.50 L 30.50 28.50 Q 28.50 28.50 28.50 30.50 L 28.50 38.00 Q 28.50 41.00 25.50 41.00 L 22.50 41.00 Q 19.50 41.00 19.50 38.00 L 19.50 30.50 Q 19.50 28.50 17.50 28.50 L 10.00 28.50 Q 7.00 28.50 7.00 25.50 L 7.00 22.50 Q 7.00 19.50 10.00 19.50 L 17.50 19.50 Q 19.50 19.50 19.50 17.50 Z'
-
-export function CrossMark({ className, color = TEAL, title = 'MediTrack' }) {
+/**
+ * CrossMark — הסמל בלבד (viewBox 200×200). גודל נשלט דרך className (מחלקות h ו-w).
+ * ה-ids של הגרדיאנט וה-mask ייחודיים per-instance כדי שכמה סמלים באותו עמוד לא יתנגשו.
+ */
+export function CrossMark({ className, style, title = 'MediTrack' }) {
+  const uid = useId().replace(/:/g, '')
+  const grad = `mtGrad-${uid}`
+  const mask = `mtMask-${uid}`
   return (
     <svg
-      viewBox="0 0 48 48"
+      viewBox="0 0 200 200"
       className={className}
+      style={style}
       role="img"
       aria-label={title}
-      fill={color}
       xmlns="http://www.w3.org/2000/svg"
     >
       <title>{title}</title>
-      <path fillRule="evenodd" d={`${OUTER} ${INNER}`} />
-      <circle cx="24" cy="24" r="2.7" />
+      <defs>
+        <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#5FE3D1" />
+          <stop offset="1" stopColor="#0D8FA2" />
+        </linearGradient>
+        <mask id={mask}>
+          <rect x="0" y="0" width="200" height="200" fill="#fff" />
+          {/* קו-כותרת היומן */}
+          <rect x="20" y="56" width="160" height="10" rx="5" fill="#000" />
+          {/* הצלב הרפואי (שטח שלילי) */}
+          <rect x="86" y="82" width="28" height="88" rx="14" fill="#000" />
+          <rect x="56" y="112" width="88" height="28" rx="14" fill="#000" />
+          {/* טבעות הכריכה */}
+          <rect x="64" y="20" width="15" height="30" rx="7.5" fill="#000" />
+          <rect x="121" y="20" width="15" height="30" rx="7.5" fill="#000" />
+        </mask>
+      </defs>
+      {/* בסיס כהה (ink-900) מתחת למסכה → השטח השלילי (צלב/יומן) נקרא כהה, כמו במערכת. */}
+      <rect x="14" y="30" width="172" height="156" rx="42" fill="#0c2627" />
+      <rect x="14" y="30" width="172" height="156" rx="42" fill={`url(#${grad})`} mask={`url(#${mask})`} />
     </svg>
   )
 }
 
 /**
- * BrandLockup — הסמל הווקטורי לצד שם האפליקציה כטקסט חי (רזולוציה מלאה, חד).
+ * BrandLockup — הסמל לצד שם האפליקציה כטקסט חי (רזולוציה מלאה, חד).
  * @param variant 'dark' לרקע כהה (טקסט לבן) · 'light' לרקע בהיר (טקסט כהה).
+ * @param size    גובה/רוחב הסמל בפיקסלים (ברירת מחדל 36; פורטל המטופל/מובייל = 32).
  */
-export function BrandLockup({ variant = 'dark', className = '' }) {
-  const name = variant === 'dark' ? 'text-white' : 'text-slate-800'
+export function BrandLockup({ variant = 'dark', className = '', size = 36 }) {
+  const word = variant === 'dark' ? '#FFFFFF' : '#0B2A2B'
+  const sub = variant === 'dark' ? '#2DD4BF' : '#0F9488'
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <CrossMark className="h-10 w-10 shrink-0" />
-      <div className="leading-none">
-        <p className={`font-extrabold text-[20px] tracking-tight ${name}`}>MediTrack</p>
-        <p className="mt-1 text-[12px] font-semibold tracking-[0.22em] text-teal-400">Clinic</p>
+    <div className={`flex items-center gap-2 ${className}`}>
+      <CrossMark className="shrink-0" style={{ height: size, width: size }} />
+      {/* גדלי הטקסט נגזרים מגובה הסמל (יחידות em מעל font-size=size) כדי שגובה שתי
+          שורות הטקסט הנראה (מקצה MediTrack העליון ועד בסיס CLINIC) יתלכד עם גובה
+          ה-squircle של הסמל בכל גודל. CLINIC ממורכז מתחת ל-MediTrack (textAlign:center);
+          ה-marginRight השלילי מבטל את רווח-האותיות הנגרר כדי שהמרכוז יהיה מדויק. */}
+      <div
+        className="leading-none"
+        style={{ fontFamily: BRAND_FONT, direction: 'ltr', textAlign: 'center', fontSize: size }}
+      >
+        <p className="font-semibold" style={{ color: word, fontSize: '0.46em' }}>
+          MediTrack
+        </p>
+        <p
+          className="font-medium"
+          style={{ color: sub, fontSize: '0.31em', marginTop: '0.085em', letterSpacing: '0.34em', marginRight: '-0.17em' }}
+        >
+          CLINIC
+        </p>
       </div>
     </div>
   )
