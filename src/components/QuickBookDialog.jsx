@@ -10,7 +10,7 @@ import {
   dayName, shortDate, hhmm,
   firstBookingDay, weekStartOf, maxBookingWeekStart, weekWorkingDays,
 } from '../lib/format.js'
-import { WORK_START_HOUR, WORK_END_HOUR } from '../data/seed.js'
+import { isSlotBlocked } from '../lib/appointments.js'
 
 // Direct Booking (קביעה ישירה בשיחה): the secretary schedules a call straight into the
 // calendar — pick/register the patient, therapist, treatment and a free slot. No AI, no
@@ -18,7 +18,11 @@ import { WORK_START_HOUR, WORK_END_HOUR } from '../data/seed.js'
 // created_by + source='טלפון' (quick bookings are, in practice, always phone calls — so
 // there's no channel picker). Booking-success is shown by the shared modal in ClinicLayout.
 export default function QuickBookDialog({ onClose }) {
-  const { activeTherapists, appointments, patientById, treatmentsForTherapist, treatmentById, addPatient, bookAppointmentByStaff } = useData()
+  const { activeTherapists, appointments, blocks, patientById, treatmentsForTherapist, treatmentById, addPatient, bookAppointmentByStaff, settings } = useData()
+  // Clinic operating window (Settings) drives the day grid + slot hours.
+  const workDays = settings.workDays
+  const startHour = settings.workStartHour
+  const endHour = settings.workEndHour
 
   const [patientSel, setPatientSel] = useState({ mode: 'existing', patientId: null, newPatient: null, ready: false })
   const [therapistId, setTherapistId] = useState(activeTherapists[0]?.id ?? '')
@@ -30,15 +34,15 @@ export default function QuickBookDialog({ onClose }) {
   const [treatmentId, setTreatmentId] = useState(availableTreatments[0]?.id ?? '')
   const duration = treatmentById[treatmentId]?.durationMin ?? 30
 
-  const firstDay = useMemo(() => firstBookingDay(), [])
+  const firstDay = useMemo(() => firstBookingDay(workDays), [workDays])
   const thisWeekStart = useMemo(() => weekStartOf(firstDay), [firstDay])
   const maxWeekStart = useMemo(() => maxBookingWeekStart(), [])
 
   function buildSlots(d, tId) {
     const now = new Date()
-    const dayEnd = set(d, { hours: WORK_END_HOUR, minutes: 0, seconds: 0, milliseconds: 0 }).getTime()
+    const dayEnd = set(d, { hours: endHour, minutes: 0, seconds: 0, milliseconds: 0 }).getTime()
     const out = []
-    for (let h = WORK_START_HOUR; h < WORK_END_HOUR; h++) {
+    for (let h = startHour; h < endHour; h++) {
       for (const m of [0, 30]) {
         const start = set(d, { hours: h, minutes: m, seconds: 0, milliseconds: 0 })
         const end = start.getTime() + duration * 60000
@@ -47,8 +51,9 @@ export default function QuickBookDialog({ onClose }) {
           (a) => a.therapistId === tId && isSameDay(a.start, d)
             && start.getTime() < a.start.getTime() + a.durationMin * 60000 && end > a.start.getTime(),
         )
+        const blocked = isSlotBlocked(blocks, tId, start.getTime(), end)
         const past = start.getTime() < now.getTime()
-        out.push({ hour: h, minute: m, start, taken, past, available: !taken && !past })
+        out.push({ hour: h, minute: m, start, taken: taken || blocked, past, available: !taken && !blocked && !past })
       }
     }
     return out
@@ -58,7 +63,7 @@ export default function QuickBookDialog({ onClose }) {
   const recommendedDate = useMemo(() => {
     let d = firstDay
     for (let i = 0; i < 180; i++) {
-      if (d.getDay() <= 4 && buildSlots(d, therapistId).some((s) => s.available)) return d
+      if (workDays.includes(d.getDay()) && buildSlots(d, therapistId).some((s) => s.available)) return d
       d = addDays(d, 1)
     }
     return firstDay
@@ -68,7 +73,7 @@ export default function QuickBookDialog({ onClose }) {
   const [weekStart, setWeekStart] = useState(() => weekStartOf(firstDay))
   const [date, setDate] = useState(firstDay)
   const [selected, setSelected] = useState(null)
-  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay), [weekStart, firstDay])
+  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay, workDays), [weekStart, firstDay, workDays])
   const canPrevWeek = weekStart > thisWeekStart
   const canNextWeek = weekStart < maxWeekStart
 
@@ -78,7 +83,7 @@ export default function QuickBookDialog({ onClose }) {
   const slots = useMemo(
     () => buildSlots(date, therapistId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appointments, therapistId, date, duration],
+    [appointments, blocks, therapistId, date, duration],
   )
 
   // Email availability for the confirmation toggle (existing patient record or new-patient input).
@@ -164,11 +169,11 @@ export default function QuickBookDialog({ onClose }) {
           {/* Date */}
           <Field label="תאריך" icon={CalendarDays}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] text-slate-400 tabular-nums">{shortDate(weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
+              <span className="text-[11px] text-slate-400 tabular-nums">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(workingDays[workingDays.length - 1] ?? addDays(weekStart, 6))}</span>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => { if (canPrevWeek) { const n = addDays(weekStart, -7); setWeekStart(n); setDate(weekWorkingDays(n, firstDay)[0] ?? date); setSelected(null) } }} disabled={!canPrevWeek}
+                <button type="button" onClick={() => { if (canPrevWeek) { const n = addDays(weekStart, -7); setWeekStart(n); setDate(weekWorkingDays(n, firstDay, workDays)[0] ?? date); setSelected(null) } }} disabled={!canPrevWeek}
                   className="grid place-items-center h-7 px-2 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 text-sm">‹</button>
-                <button type="button" onClick={() => { if (canNextWeek) { const n = addDays(weekStart, 7); setWeekStart(n); setDate(weekWorkingDays(n, firstDay)[0] ?? date); setSelected(null) } }} disabled={!canNextWeek}
+                <button type="button" onClick={() => { if (canNextWeek) { const n = addDays(weekStart, 7); setWeekStart(n); setDate(weekWorkingDays(n, firstDay, workDays)[0] ?? date); setSelected(null) } }} disabled={!canNextWeek}
                   className="grid place-items-center h-7 px-2 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 text-sm">›</button>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { ListChecks, Plus, Zap, User, Users, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive, AlertTriangle } from 'lucide-react'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import { ListChecks, Plus, Zap, User, Users, ArrowLeftRight, Check, Clock, Pencil, Trash2, Archive, AlertTriangle, X } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Avatar, Empty } from '../../components/ui.jsx'
 import { URGENCY_OPTIONS, URGENCY_TONE, CATEGORY_OPTIONS } from '../../lib/triage.js'
@@ -9,6 +9,8 @@ import TaskArchiveModal from '../../components/TaskArchiveModal.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import { friendlyDate, hhmm, toClinicInput, clinicInputToDate } from '../../lib/format.js'
 import { isAfter, startOfDay, subDays } from 'date-fns'
+import { isTaskOverdue } from '../../lib/tasks.js'
+import { useNow } from '../../lib/useNow.js'
 import { clsx } from '../../components/clsx.js'
 
 const COLUMNS = [
@@ -46,7 +48,8 @@ function withinRange(t, range) {
 }
 
 export default function TasksBoard() {
-  const { tasks, patientById, assignees, assigneeById, setTaskStatus, addTask, updateTask, deleteTask } = useData()
+  const { tasks, patientById, assignees, assigneeById, settings, setTaskStatus, addTask, updateTask, deleteTask } = useData()
+  const now = useNow()
   // Form target: null (closed) · 'new' (create) · a task object (edit).
   const [editing, setEditing] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -55,7 +58,13 @@ export default function TasksBoard() {
   // Task Archive side-drawer (the full completed backlog, loaded on demand).
   const [archiveOpen, setArchiveOpen] = useState(false)
 
-  // Deep-link target from the Dashboard "תורים שלא סומנו" KPI: scroll the review
+  // Deep-link filter from the Dashboard "N באיחור" chip: ?filter=overdue opens the
+  // board showing overdue tasks only. Lives in the URL (shareable, survives reload).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const overdueOnly = searchParams.get('filter') === 'overdue'
+  const overdueCount = tasks.filter((t) => t.status !== 'הושלם' && isTaskOverdue(t, now, settings)).length
+
+  // Deep-link target from the Dashboard "תורים שלא עודכנו" KPI: scroll the review
   // queue into view and briefly ring it so the redirect lands where it should.
   const location = useLocation()
   const reviewRef = useRef(null)
@@ -85,6 +94,22 @@ export default function TasksBoard() {
         </div>
       </div>
 
+      {overdueOnly && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-red-50 ring-1 ring-red-200 px-4 py-2.5">
+          <span className="flex items-center gap-2 text-sm font-medium text-red-700">
+            <AlertTriangle size={16} className="shrink-0" />
+            מציג משימות באיחור בלבד ({overdueCount})
+          </span>
+          <button
+            type="button"
+            onClick={() => setSearchParams({})}
+            className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-sm font-medium text-red-700 ring-1 ring-red-200 hover:bg-red-100 transition"
+          >
+            <X size={14} className="shrink-0" /> הצג הכל
+          </button>
+        </div>
+      )}
+
       <UnresolvedAppointments ref={reviewRef} highlighted={highlighted} />
 
       {editing && (
@@ -104,7 +129,10 @@ export default function TasksBoard() {
       <div className="grid md:grid-cols-3 gap-4">
         {COLUMNS.map((col) => {
           const isDone = col.key === 'הושלם'
-          const all = tasks.filter((t) => t.status === col.key)
+          let all = tasks.filter((t) => t.status === col.key)
+          // Overdue-only deep link: keep just the late open tasks (a completed task is
+          // never "overdue", so the הושלם column empties out under this filter).
+          if (overdueOnly) all = all.filter((t) => !isDone && isTaskOverdue(t, now, settings))
           // The completed column is windowed by recency; other columns show everything.
           const items = isDone ? all.filter((t) => withinRange(t, doneRange)) : all
           const hidden = all.length - items.length
@@ -152,11 +180,18 @@ export default function TasksBoard() {
                 ) : (
                   items.map((t) => {
                     const assignee = t.assigneeId ? assigneeById[t.assigneeId] : null
+                    // Overdue is only meaningful for open work — a completed task past its
+                    // due date isn't "late". Same isTaskOverdue the dashboard/reports use,
+                    // so the red treatment stays consistent across the app.
+                    const overdue = !isDone && isTaskOverdue(t, now, settings)
                     return (
-                      <Card key={t.id} className="p-4">
+                      <Card key={t.id} className={clsx('p-4', overdue && '!ring-red-300 !bg-red-50/60')}>
                         <div className="flex items-start justify-between gap-2">
                           <p className="font-medium text-slate-800 leading-snug min-w-0">{t.title}</p>
                           <div className="flex items-center gap-1 shrink-0">
+                            {overdue && (
+                              <Badge tone="red"><AlertTriangle size={12} /> באיחור</Badge>
+                            )}
                             {t.urgency && t.urgency !== 'רגיל' && (
                               <Badge tone={URGENCY_TONE[t.urgency]}>
                                 {t.urgency === 'דחוף' && <AlertTriangle size={12} />} {t.urgency}
@@ -188,7 +223,9 @@ export default function TasksBoard() {
                         {t.note && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{t.note}</p>}
                         <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
                           {t.category && <Badge tone="teal">{t.category}</Badge>}
-                          <span className="flex items-center gap-1"><Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}</span>
+                          <span className={clsx('flex items-center gap-1', overdue && 'text-red-600 font-medium')}>
+                            <Clock size={12} /> {friendlyDate(t.due)} · {hhmm(t.due)}{overdue && ' · באיחור'}
+                          </span>
                           {assignee ? (
                             <span className="flex items-center gap-1">
                               <Avatar initials={assignee.initials} color={assignee.color} size={18} />

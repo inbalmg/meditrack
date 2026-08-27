@@ -41,8 +41,8 @@ const UnresolvedAppointments = forwardRef(function UnresolvedAppointments({ high
           <CheckCircle2 size={17} />
         </span>
         <div className="min-w-0">
-          <h3 className="font-semibold text-slate-700 truncate">תורים שלא סומנו</h3>
-          <p className="text-xs text-slate-500 truncate">כל התורים מהעבר סומנו — אין תורים שממתינים לבדיקה</p>
+          <h3 className="font-semibold text-slate-700 truncate">תורים שלא עודכנו</h3>
+          <p className="text-xs text-slate-500 truncate">כל התורים מהעבר עודכנו — אין תורים שממתינים לבדיקה</p>
         </div>
       </Card>
     )
@@ -52,8 +52,8 @@ const UnresolvedAppointments = forwardRef(function UnresolvedAppointments({ high
     <Card
       ref={ref}
       className={clsx(
-        'flex flex-col overflow-hidden scroll-mt-4 !ring-rose-200 transition',
-        highlighted && '!ring-2 !ring-rose-300',
+        'flex flex-col overflow-hidden scroll-mt-4 !ring-amber-200 transition',
+        highlighted && '!ring-2 !ring-amber-300',
       )}
     >
       {/* Summary bar — the whole row toggles the accordion. */}
@@ -63,18 +63,18 @@ const UnresolvedAppointments = forwardRef(function UnresolvedAppointments({ high
         onClick={() => setOpen((o) => !o)}
         className={clsx(
           'w-full flex items-center justify-between gap-3 px-4 py-3 text-right transition-colors',
-          open ? 'bg-rose-50/40' : 'hover:bg-rose-50/30',
+          open ? 'bg-amber-50/40' : 'hover:bg-amber-50/30',
         )}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="grid place-items-center h-8 w-8 rounded-lg bg-rose-50 text-rose-600 shrink-0">
+          <span className="grid place-items-center h-8 w-8 rounded-lg bg-amber-50 text-amber-600 shrink-0">
             <CalendarClock size={17} />
           </span>
           <div className="min-w-0">
-            <h3 className="font-semibold text-rose-700 truncate">תורים שלא סומנו</h3>
+            <h3 className="font-semibold text-amber-700 truncate">תורים שלא עודכנו</h3>
             <p className="text-xs text-slate-500 truncate">ממתינים לעדכון הגעה או אי-הגעה</p>
           </div>
-          <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 ring-1 ring-rose-200 shrink-0">
+          <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 ring-1 ring-amber-200 shrink-0">
             {count}
           </span>
         </div>
@@ -83,7 +83,7 @@ const UnresolvedAppointments = forwardRef(function UnresolvedAppointments({ high
 
       {/* Expanded content — the actionable list + a secondary batch action. */}
       {open && (
-        <div className="border-t border-rose-100">
+        <div className="border-t border-amber-100">
           <div className="flex items-center justify-between gap-3 px-4 py-2.5">
             <p className="text-xs text-slate-500 min-w-0 truncate">עדכן/י סטטוס לכל תור שהסתיים: הגיע או לא הגיע</p>
             <button

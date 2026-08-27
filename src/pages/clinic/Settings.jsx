@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw, ChevronDown, Archive } from 'lucide-react'
+import { Bell, Users, Stethoscope, Trash2, UserPlus, Zap, Plus, RotateCcw, ChevronDown, Archive, CalendarClock } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { ROLES } from '../../session.jsx'
 import { Card, CardHeader, Button, Badge } from '../../components/ui.jsx'
 import { clsx } from '../../components/clsx.js'
-import { validateStaffName, isValidStaffRole, NAME_MAX, validateTherapistName, validateSpecialty, THERAPIST_NAME_MAX, SPECIALTY_MAX, validateOverdueGraceHours, OVERDUE_GRACE_MIN, OVERDUE_GRACE_MAX } from '../../lib/validation.js'
+import { validateStaffName, isValidStaffRole, NAME_MAX, validateTherapistName, validateSpecialty, THERAPIST_NAME_MAX, SPECIALTY_MAX, validateBoundedInt } from '../../lib/validation.js'
 
 const THERAPIST_COLORS = ['#0d9488', '#2563eb', '#9333ea', '#f59e0b', '#ef4444', '#0ea5e9']
 const DURATIONS = [20, 30, 45, 60]
@@ -89,40 +89,31 @@ export default function Settings() {
           />
 
           <div className="border-t border-slate-100 pt-4 space-y-4">
-            <ToggleRow
-              label="סימון אי-הגעה אוטומטי"
-              hint="סימון התור כ״לא הגיע״ אם המטופל לא הגיע"
-              checked={settings.autoNoShow}
-              onChange={(v) => updateSettings({ autoNoShow: v })}
-            />
-            <NumberRow
-              label="סימון אי-הגעה"
-              suffix="דקות אחרי מועד התור"
-              value={settings.noShowMinutes}
-              min={5}
-              max={60}
-              disabled={!settings.autoNoShow}
-              onChange={(v) => updateSettings({ noShowMinutes: v })}
-            />
-            <ToggleRow
+            {/* Toggle + its derived time input on one continuous row; the input dims
+                and locks when the toggle is off (the switch itself stays live). */}
+            <AutomationTimeRow
               label="יצירת משימת פולו-אפ באי-הגעה"
               hint="פתיחת משימה אוטומטית למזכירות ליצירת קשר ותיאום מחדש"
-              checked={settings.followUpOnNoShow}
-              onChange={(v) => updateSettings({ followUpOnNoShow: v })}
               badge={<Badge tone="purple"><Zap size={12} /> אוטומציה</Badge>}
+              checked={settings.followUpOnNoShow}
+              onToggle={(v) => updateSettings({ followUpOnNoShow: v })}
+              value={settings.noShowSlaHours}
+              min={0}
+              max={72}
+              suffix="שעות מרגע יצירת המשימה"
+              onCommit={(v) => updateSettings({ noShowSlaHours: v })}
             />
           </div>
 
-          <div className="border-t border-slate-100 pt-4 space-y-4">
-            <ToggleRow
+          <div className="border-t border-slate-100 pt-4 ">
+            <AutomationTimeRow
               label="סימון משימות באיחור"
-              hint="צביעה אדומה וספירה של משימות פתוחות שעבר מועד היעד שלהן, בדשבורד ובדוחות"
               checked={settings.overdueEnabled}
-              onChange={(v) => updateSettings({ overdueEnabled: v })}
-            />
-            <OverdueGraceRow
+              onToggle={(v) => updateSettings({ overdueEnabled: v })}
               value={settings.overdueGraceHours}
-              disabled={!settings.overdueEnabled}
+              min={0}
+              max={72}
+              suffix="שעות אחרי מועד היעד"
               onCommit={(v) => updateSettings({ overdueGraceHours: v })}
             />
             <p className={clsx('text-xs text-slate-400', !settings.overdueEnabled && 'opacity-50')}>
@@ -131,6 +122,9 @@ export default function Settings() {
           </div>
         </div>
       </Card>
+
+      {/* --- Clinic operating days & hours --- */}
+      <ClinicHoursCard settings={settings} updateSettings={updateSettings} />
 
       {/* --- Therapists & visit types --- */}
       <Card className="overflow-hidden">
@@ -407,6 +401,32 @@ export default function Settings() {
   )
 }
 
+// The on/off switch, shared by the plain toggle rows and the combined
+// toggle-plus-time rows.
+function ToggleSwitch({ checked, onChange, disabled }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={clsx(
+        'relative h-6 w-11 rounded-full transition shrink-0 disabled:cursor-not-allowed',
+        checked ? 'bg-teal-600' : 'bg-slate-300',
+      )}
+    >
+      <span
+        className={clsx(
+          'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',
+          checked ? 'right-0.5' : 'right-[22px]',
+        )}
+      />
+    </button>
+  )
+}
+
+// A plain toggle row (label + hint + optional badge + switch), used for toggles
+// with no derived time field.
 function ToggleRow({ label, hint, checked, onChange, badge, disabled }) {
   return (
     <div className={clsx('flex items-center justify-between gap-4', disabled && 'opacity-50')}>
@@ -417,64 +437,64 @@ function ToggleRow({ label, hint, checked, onChange, badge, disabled }) {
         </div>
         {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
       </div>
-      <button
-        role="switch"
-        aria-checked={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={clsx(
-          'relative h-6 w-11 rounded-full transition shrink-0 disabled:cursor-not-allowed',
-          checked ? 'bg-teal-600' : 'bg-slate-300',
-        )}
-      >
-        <span
-          className={clsx(
-            'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',
-            checked ? 'right-0.5' : 'right-[22px]',
-          )}
-        />
-      </button>
+      <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} />
     </div>
   )
 }
 
-// Overdue grace, in hours — text field with real validation (whole number, no
-// leading zeros, in range). Keeps its own draft so an invalid keystroke can be
-// shown with an error without corrupting the stored setting; only valid values
-// are committed. Re-syncs if the stored value changes elsewhere (e.g. reset).
-function OverdueGraceRow({ value, disabled, onCommit }) {
+// Fixed width of the time-field cell (input + suffix). Because every row uses the
+// SAME width and the input is packed to its right (RTL start), all three inputs
+// land on one vertical axis regardless of how long the suffix text is. Sized to
+// fit the widest suffix + the input (w-20) + the gap.
+const TIME_FIELD_W = 'w-64'
+
+// Toggle + its derived time input on one continuous row. The hours/minutes field
+// is a text input with REAL validation (validateBoundedInt: whole number, digits
+// only, no leading zeros, within [min, max]): it keeps its own draft so an invalid
+// keystroke is flagged and NOT committed — only valid values reach onCommit. The
+// draft re-syncs if the stored value changes elsewhere (e.g. reset). When the
+// toggle is off the field dims and locks, while the switch itself stays live.
+function AutomationTimeRow({ label, hint, badge, checked, onToggle, value, min, max, suffix, onCommit }) {
   const [text, setText] = useState(String(value))
   useEffect(() => { setText(String(value)) }, [value])
-  const { error } = validateOverdueGraceHours(text)
+  const disabled = !checked
+  const { error } = validateBoundedInt(text, min, max)
 
   function handleChange(raw) {
     setText(raw)
-    const res = validateOverdueGraceHours(raw)
+    const res = validateBoundedInt(raw, min, max)
     if (!res.error) onCommit(res.value)
   }
 
   return (
-    <div className={clsx(disabled && 'opacity-50')}>
+    <div>
       <div className="flex items-center justify-between gap-4">
-        <label htmlFor="overdue-grace" className="text-sm text-slate-700">סימון משימה כ״באיחור״</label>
-        <div className="flex items-center gap-2 shrink-0">
-          <input
-            id="overdue-grace"
-            type="text"
-            inputMode="numeric"
-            dir="ltr"
-            value={text}
-            disabled={disabled}
-            aria-invalid={!disabled && !!error}
-            min={OVERDUE_GRACE_MIN}
-            max={OVERDUE_GRACE_MAX}
-            onChange={(e) => handleChange(e.target.value)}
-            className={clsx(
-              'h-9 w-20 rounded-lg ring-1 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 disabled:bg-slate-50',
-              !disabled && error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
-            )}
-          />
-          <span className="text-sm text-slate-500">שעות אחרי מועד היעד</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-slate-700">{label}</p>
+            {badge}
+          </div>
+          {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className={clsx('flex items-center gap-2 shrink-0', TIME_FIELD_W, disabled && 'opacity-50')}>
+            <input
+              type="text"
+              inputMode="numeric"
+              dir="ltr"
+              value={text}
+              disabled={disabled}
+              aria-invalid={!disabled && !!error}
+              aria-label={label}
+              onChange={(e) => handleChange(e.target.value)}
+              className={clsx(
+                'h-9 w-20 rounded-lg ring-1 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 disabled:bg-slate-50 disabled:cursor-not-allowed',
+                !disabled && error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
+              )}
+            />
+            <span className="text-sm text-slate-500">{suffix}</span>
+          </div>
+          <ToggleSwitch checked={checked} onChange={onToggle} />
         </div>
       </div>
       {!disabled && error && <p className="text-xs text-red-500 mt-1.5 text-left">{error}</p>}
@@ -482,22 +502,80 @@ function OverdueGraceRow({ value, disabled, onCommit }) {
   )
 }
 
-function NumberRow({ label, suffix, value, min, max, disabled, onChange }) {
+// --- Clinic operating days & hours ---
+// Uniform daily hours [start, end) + a set of active weekdays (0=Sun … 6=Sat), stored
+// in clinic settings. These drive the calendar grid and the booking slot generation
+// everywhere (see store DEFAULT_SETTINGS). At least one active day is enforced, and the
+// hour selects can't cross (start < end) — invalid options are disabled.
+const DAY_LABELS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+const fmtHour = (h) => `${String(h).padStart(2, '0')}:00`
+
+function ClinicHoursCard({ settings, updateSettings }) {
+  const workDays = settings.workDays ?? [0, 1, 2, 3, 4]
+  const startHour = settings.workStartHour ?? 9
+  const endHour = settings.workEndHour ?? 18
+
+  function toggleDay(dow) {
+    const on = workDays.includes(dow)
+    if (on && workDays.length === 1) return // חייב להישאר לפחות יום פעיל אחד
+    const next = (on ? workDays.filter((d) => d !== dow) : [...workDays, dow]).sort((a, b) => a - b)
+    updateSettings({ workDays: next })
+  }
+
   return (
-    <div className={clsx('flex items-center justify-between gap-4', disabled && 'opacity-50')}>
-      <p className="text-sm text-slate-700">{label}</p>
-      <div className="flex items-center gap-2 shrink-0">
-        <input
-          type="number"
-          value={value}
-          min={min}
-          max={max}
-          disabled={disabled}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="h-9 w-20 rounded-lg ring-1 ring-slate-300 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-slate-50"
-        />
-        <span className="text-sm text-slate-500">{suffix}</span>
+    <Card className="overflow-hidden">
+      <CardHeader dark title="שעות ופעילות" icon={CalendarClock} />
+      <div className="p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-slate-700 mb-2.5">ימי פעילות</h3>
+          <div className="flex gap-1.5 flex-wrap">
+            {DAY_LABELS.map((lbl, dow) => {
+              const on = workDays.includes(dow)
+              return (
+                <button
+                  key={dow}
+                  type="button"
+                  onClick={() => toggleDay(dow)}
+                  aria-pressed={on}
+                  title={on && workDays.length === 1 ? 'חייב להישאר יום פעיל אחד לפחות' : undefined}
+                  className={clsx(
+                    'h-9 w-9 rounded-lg text-sm font-medium ring-1 transition',
+                    on ? 'bg-teal-600 text-white ring-teal-600' : 'bg-white text-slate-500 ring-slate-200 hover:ring-teal-300',
+                  )}
+                >
+                  {lbl}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 pt-4">
+          <h3 className="text-sm font-medium text-slate-700 mb-2.5">שעות פעילות</h3>
+          <div className="flex items-center gap-3">
+            <HourSelect value={startHour} ariaLabel="שעת פתיחה" isDisabled={(h) => h >= endHour} onChange={(v) => updateSettings({ workStartHour: v })} />
+            <span className="text-sm text-slate-400">עד</span>
+            <HourSelect value={endHour} ariaLabel="שעת סגירה" isDisabled={(h) => h <= startHour} onChange={(v) => updateSettings({ workEndHour: v })} />
+          </div>
+          <p className="text-xs text-slate-400 mt-2">הימים והשעות קובעים את תצוגת היומן ואת המשבצות הפנויות בהזמנה עצמית ובקביעה מהירה.</p>
+        </div>
       </div>
-    </div>
+    </Card>
+  )
+}
+
+function HourSelect({ value, onChange, ariaLabel, isDisabled }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      aria-label={ariaLabel}
+      className="h-9 rounded-lg ring-1 ring-slate-300 bg-white px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+    >
+      {HOURS.map((h) => (
+        <option key={h} value={h} disabled={isDisabled?.(h)}>{fmtHour(h)}</option>
+      ))}
+    </select>
   )
 }

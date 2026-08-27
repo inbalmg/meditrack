@@ -43,12 +43,12 @@ export default function BookingConfirmationModal() {
           )}
         </Card>
         <Card className="p-5">
-          <dl className="space-y-2.5 text-sm">
-            <Row label="מטופל/ת"><span className="font-medium text-slate-700">{patientName}</span></Row>
-            <Row label="טיפול"><span className="font-medium text-slate-700">{appt.visitType}</span></Row>
-            <Row label="מטפל/ת"><span className="font-medium text-slate-700">{therapistName}{specialty ? ` · ${specialty}` : ''}</span></Row>
-            <Row label="מועד"><span className="font-medium text-slate-700">יום {dayName(appt.start)} {shortDate(appt.start)} · {hhmm(appt.start)}</span></Row>
-            <Row label="משך"><span className="font-medium text-slate-700">{appt.durationMin} דק׳</span></Row>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2.5 text-sm">
+            <Row label="מטופל/ת">{patientName}</Row>
+            <Row label="טיפול">{appt.visitType}</Row>
+            <Row label="מטפל/ת">{therapistName}{specialty ? ` · ${specialty}` : ''}</Row>
+            <Row label="מועד">יום {dayName(appt.start)} {shortDate(appt.start)} · {hhmm(appt.start)}</Row>
+            <Row label="משך">{appt.durationMin} דק׳</Row>
           </dl>
         </Card>
         <Button size="lg" className="w-full" onClick={clearBookingConfirmation}>
@@ -60,11 +60,13 @@ export default function BookingConfirmationModal() {
   )
 }
 
+// One row of the two-column summary grid: `dt`/`dd` are direct grid children so
+// the label column auto-sizes and every value column starts on the same line.
 function Row({ label, children }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-slate-500">{label}</dt>
-      <dd>{children}</dd>
-    </div>
+    <>
+      <dt className="text-slate-500 whitespace-nowrap">{label}:</dt>
+      <dd className="font-medium text-slate-700">{children}</dd>
+    </>
   )
 }

@@ -24,12 +24,21 @@ function persist(promiseLike, label) {
 }
 
 const DEFAULT_SETTINGS = {
-  remindersEnabled: true, autoNoShow: true, noShowMinutes: 15, followUpOnNoShow: true,
+  remindersEnabled: true, followUpOnNoShow: true,
+  // SLA window (hours) for a no-show follow-up: how long after the task is created
+  // its due time falls — i.e. the deadline the desk has to reschedule the patient.
+  // The auto task's "עד HH:MM" reflects this, so it isn't born already overdue.
+  noShowSlaHours: 3,
   // Overdue-task flagging. overdueEnabled=false turns the whole "באיחור" mechanism
   // off (no red, no counts anywhere). overdueGraceHours = grace window (hours) after
   // a task's due time before it's flagged; 0 = flag the instant the deadline passes.
   // See lib/tasks.js.
   overdueEnabled: true, overdueGraceHours: 0,
+  // Clinic operating window — which weekdays are open (0=Sun … 6=Sat) and the uniform
+  // daily hours [start, end). Drives the calendar grid AND the booking slot generation
+  // (Calendar / DoctorCalendar / QuickBookDialog / NewRequest). Defaults reproduce the
+  // previously hard-coded behavior (Sun–Thu, 09:00–18:00) so existing clinics are unchanged.
+  workDays: [0, 1, 2, 3, 4], workStartHour: 9, workEndHour: 18,
 }
 
 // The task board mirror holds every open/in-progress task, but only the last
@@ -77,6 +86,12 @@ const mapRequest = (r) => ({
   kind: r.kind ?? 'inquiry', subject: r.subject ?? null, staffNote: r.staff_note ?? null,
   urgency: r.urgency ?? null, convertedTaskId: r.converted_task_id ?? null,
 })
+// Manual calendar blocks (חסימת משבצות): therapistId null = whole-clinic block, otherwise
+// blocks just that provider. Excluded from bookable-slot generation + drawn on the calendars.
+const mapBlock = (r) => ({
+  id: r.id, therapistId: r.therapist_id ?? null, start: new Date(r.start),
+  durationMin: r.duration_min, reason: r.reason ?? null, createdBy: r.created_by ?? null,
+})
 
 // Id-idempotent mirror patches for Realtime. Realtime echoes back THIS tab's own optimistic
 // writes (same client-generated UUID), so we replace-by-id instead of blind-prepend — an
@@ -94,6 +109,7 @@ export function DataProvider({ children }) {
 
   const [requests, setRequests] = useState([])
   const [appointments, setAppointments] = useState([])
+  const [blocks, setBlocks] = useState([])
   const [tasks, setTasks] = useState([])
   const [patients, setPatients] = useState([])
   const [therapists, setTherapists] = useState([])
@@ -141,7 +157,7 @@ export function DataProvider({ children }) {
       setReady(false)
       setRequests([]); setAppointments([]); setTasks([]); setPatients([])
       setTherapists([]); setTreatments([]); setStaff([]); setCurrentPatient(null)
-      setToasts([])
+      setBlocks([]); setToasts([])
       return
     }
     let active = true
@@ -158,7 +174,7 @@ export function DataProvider({ children }) {
         // the last MAIN_BOARD_DONE_DAYS. The older completed backlog is fetched lazily by
         // the archive drawer (fetchArchivedTasks) — it never enters this mirror.
         const doneCutoff = subDays(new Date(), MAIN_BOARD_DONE_DAYS).toISOString()
-        const [th, tr, tp, pt, ap, rq, tk, st, cl, pr] = await Promise.all([
+        const [th, tr, tp, pt, ap, rq, tk, st, cl, pr, bk] = await Promise.all([
           supabase.from('therapists').select('*'),
           supabase.from('treatments').select('*').eq('active', true),
           supabase.from('treatment_providers').select('treatment_id,therapist_id'),
@@ -169,6 +185,7 @@ export function DataProvider({ children }) {
           supabase.from('staff').select('*'),
           supabase.from('clinics').select('settings').maybeSingle(),
           supabase.from('profiles').select('id,full_name,role'),
+          supabase.from('slot_blocks').select('*'),
         ])
         if (!active) return
 
@@ -189,6 +206,7 @@ export function DataProvider({ children }) {
         setTasks((tk.data ?? []).map(mapTask))
         setStaff((st.data ?? []).map(mapStaff))
         setProfiles((pr.data ?? []).map(mapProfile))
+        setBlocks((bk.data ?? []).map(mapBlock))
         // Merge over defaults so settings saved before a new key was introduced
         // (e.g. overdueGraceHours) still resolve to a value.
         setSettings({ ...DEFAULT_SETTINGS, ...(cl.data?.settings ?? {}) })
@@ -240,6 +258,10 @@ export function DataProvider({ children }) {
       const stale = row.status === 'הושלם' && row.completedAt && row.completedAt.getTime() < doneCutoffMs
       setTasks(stale ? removeById(row.id) : upsertById(row))
     }
+    const applyBlock = (p) => {
+      if (p.eventType === 'DELETE') { setBlocks(removeById(p.old.id)); return }
+      setBlocks(upsertById(mapBlock(p.new)))
+    }
 
     // Carry the authenticated JWT onto the Realtime socket so RLS-scoped postgres_changes
     // authorize (supabase-js also re-syncs this on token refresh).
@@ -250,6 +272,7 @@ export function DataProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `clinic_id=eq.${clinicId}` }, applyRequest)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `clinic_id=eq.${clinicId}` }, applyAppointment)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `clinic_id=eq.${clinicId}` }, applyTask)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'slot_blocks', filter: `clinic_id=eq.${clinicId}` }, applyBlock)
       .subscribe((s) => {
         // Fallback A — a dropped/re-established socket may have missed events; resync once.
         if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') wasDisconnected = true
@@ -504,6 +527,45 @@ export function DataProvider({ children }) {
     persist(supabase.from('appointments').delete().eq('id', apptId), 'cancelAppointment')
   }
 
+  // --- Manual calendar blocks (חסימת משבצות) ---
+  // Reserve clinic time that isn't an appointment (break / day off / holiday). therapistId
+  // null = whole-clinic block (blocks every provider); otherwise blocks just that provider.
+  // RLS lets staff manage any block and a therapist manage only their own. Blocked time is
+  // excluded from bookable-slot generation (see lib/appointments.js → isSlotBlocked).
+  function addBlock({ therapistId = null, start, durationMin = 30, reason = '' }) {
+    const block = {
+      id: uuid(), therapistId: therapistId || null, start,
+      durationMin, reason: (reason || '').trim() || null, createdBy: userId ?? null,
+    }
+    setBlocks((prev) => [...prev, block])
+    persist(supabase.from('slot_blocks').insert({
+      id: block.id, clinic_id: clinicId, therapist_id: block.therapistId,
+      start: start.toISOString(), duration_min: durationMin, reason: block.reason, created_by: userId ?? null,
+    }), 'addBlock')
+    return block
+  }
+  function updateBlock(id, patch) {
+    setBlocks((prev) => prev.map((b) => {
+      if (b.id !== id) return b
+      const next = { ...b }
+      if (patch.therapistId !== undefined) next.therapistId = patch.therapistId || null
+      if (patch.start !== undefined) next.start = patch.start
+      if (patch.durationMin !== undefined) next.durationMin = patch.durationMin
+      if (patch.reason !== undefined) next.reason = (patch.reason || '').trim() || null
+      return next
+    }))
+    const db = {}
+    if (patch.therapistId !== undefined) db.therapist_id = patch.therapistId || null
+    if (patch.start !== undefined) db.start = patch.start.toISOString()
+    if (patch.durationMin !== undefined) db.duration_min = patch.durationMin
+    if (patch.reason !== undefined) db.reason = (patch.reason || '').trim() || null
+    persist(supabase.from('slot_blocks').update(db).eq('id', id), 'updateBlock')
+  }
+  function removeBlock(id) {
+    setBlocks((prev) => prev.filter((b) => b.id !== id))
+    persist(supabase.from('slot_blocks').delete().eq('id', id), 'removeBlock')
+  }
+
   // --- SECRETARY DIRECT BOOKING (קביעה ישירה בשיחה) ---
   // The secretary schedules a call straight into the calendar — same result as a patient
   // self-book, done on their behalf. Writes to `appointments` (never `requests`), stamping
@@ -659,15 +721,17 @@ export function DataProvider({ children }) {
   // --- Status + tasks ---
   // Build the auto follow-up task that a no-show spawns (shared by the single and
   // bulk resolution paths so the task shape stays defined in one place). Its `due`
-  // equals its creation time — auto tasks behave like any other task: the card shows
-  // when it was created, and "overdue" is derived normally from the clinic's settings
-  // (overdueEnabled + overdueGraceHours), not a baked-in window.
+  // is created-time + the clinic's no-show SLA window (settings.noShowSlaHours), so
+  // the task has a real deadline to reschedule by instead of being born already at
+  // its due time. "overdue" is then derived normally once that deadline passes
+  // (overdueEnabled + overdueGraceHours). See lib/tasks.js.
   function makeNoShowFollowUp(appt) {
     const now = new Date()
+    const slaMs = Math.max(0, Number(settings.noShowSlaHours) || 0) * 3_600_000
     return {
       id: uuid(), title: `פולו-אפ אי-הגעה — ${patientById[appt.patientId]?.name ?? ''}`,
       patientId: appt.patientId, assigneeId: appt.therapistId, createdAt: now,
-      sourceAt: appt.start, sourceApptId: appt.id, due: now,
+      sourceAt: appt.start, sourceApptId: appt.id, due: new Date(now.getTime() + slaMs),
       status: 'פתוח', source: 'אוטומציה', note: 'נוצר אוטומטית לאחר אי-הגעה. ליצור קשר ולתאם מחדש.',
     }
   }
@@ -877,12 +941,13 @@ export function DataProvider({ children }) {
   }
 
   const value = {
-    therapists, activeTherapists, bookableTherapists, treatments, patients, currentPatientId, requests, appointments, tasks, staff, profiles, settings,
+    therapists, activeTherapists, bookableTherapists, treatments, patients, currentPatientId, requests, appointments, blocks, tasks, staff, profiles, settings,
     setCurrentPatient, visitDurations, patientById, therapistById, treatmentById, profileById, treatmentsForTherapist,
     assignees, assigneeById,
     updateSettings, addTherapist, updateTherapist, addTreatment, updateTreatment, removeTreatment,
     addStaff, updateStaff, removeStaff, addPatient, updatePatient, devResetOnboarding,
     bookAppointment, bookAppointmentByStaff, openStaffRequest, cancelAppointment, submitInquiry, updateInquiry, updateRequestNote, convertInquiryToTask,
+    addBlock, updateBlock, removeBlock,
     bookingConfirmation, clearBookingConfirmation,
     toasts, dismissToast,
     setAppointmentStatus, markNoShow, revertNoShow, bulkMarkNoShow, saveClinicalNote, setTaskStatus, addTask, updateTask, deleteTask,

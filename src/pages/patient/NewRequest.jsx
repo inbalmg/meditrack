@@ -14,15 +14,17 @@ import {
   genderLabel,
 } from '../../lib/format.js'
 import { phoneValid, normalizePhone, birthYearValid, isValidGender, GENDERS, emailValid, normalizeEmail } from '../../lib/validation.js'
-import { WORK_START_HOUR, WORK_END_HOUR } from '../../data/seed.js'
+import { isSlotBlocked } from '../../lib/appointments.js'
 
 // 30-minute slot grid for a provider + date; a slot is available if it fits the
-// treatment duration without overlapping an existing appointment.
-function buildSlots(date, therapistId, durationMin, appointments) {
+// treatment duration without overlapping an existing appointment OR a manual block.
+// The clinic's operating hours [startHour, endHour) come from settings (see store
+// DEFAULT_SETTINGS).
+function buildSlots(date, therapistId, durationMin, appointments, blocks, startHour, endHour) {
   const now = new Date()
-  const dayEnd = set(date, { hours: WORK_END_HOUR, minutes: 0, seconds: 0, milliseconds: 0 }).getTime()
+  const dayEnd = set(date, { hours: endHour, minutes: 0, seconds: 0, milliseconds: 0 }).getTime()
   const out = []
-  for (let h = WORK_START_HOUR; h < WORK_END_HOUR; h++) {
+  for (let h = startHour; h < endHour; h++) {
     for (const m of [0, 30]) {
       const start = set(date, { hours: h, minutes: m, seconds: 0, milliseconds: 0 })
       const end = start.getTime() + durationMin * 60000
@@ -34,8 +36,9 @@ function buildSlots(date, therapistId, durationMin, appointments) {
           start.getTime() < a.start.getTime() + a.durationMin * 60000 &&
           end > a.start.getTime(),
       )
+      const blocked = isSlotBlocked(blocks, therapistId, start.getTime(), end)
       const past = start.getTime() < now.getTime()
-      out.push({ hour: h, minute: m, start, available: !taken && !past })
+      out.push({ hour: h, minute: m, start, available: !taken && !blocked && !past })
     }
   }
   return out
@@ -46,8 +49,12 @@ export default function NewRequest() {
     bookableTherapists, treatmentsForTherapist, activeTherapists, appointments, currentPatientId,
     therapistById, treatmentById, patientById,
     bookAppointment, submitInquiry, addPatient, updatePatient, setCurrentPatient,
-    cancelAppointment,
+    cancelAppointment, settings, blocks,
   } = useData()
+  // Clinic operating window (Settings) drives the day grid + slot hours.
+  const workDays = settings.workDays
+  const startHour = settings.workStartHour
+  const endHour = settings.workEndHour
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -123,11 +130,11 @@ export default function NewRequest() {
   const [therapistId, setTherapistId] = useState(rescheduling?.therapistId ?? '')
   const [treatmentId, setTreatmentId] = useState(rescheduling?.treatmentId ?? '')
   // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
-  const firstDay = useMemo(() => firstBookingDay(), [])
+  const firstDay = useMemo(() => firstBookingDay(workDays), [workDays])
   const thisWeekStart = useMemo(() => weekStartOf(firstDay), [firstDay])
   const maxWeekStart = useMemo(() => maxBookingWeekStart(), [])
   const [weekStart, setWeekStart] = useState(thisWeekStart)
-  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay), [weekStart, firstDay])
+  const workingDays = useMemo(() => weekWorkingDays(weekStart, firstDay, workDays), [weekStart, firstDay, workDays])
   const [date, setDate] = useState(firstDay)
   const [slot, setSlot] = useState(null)
   const [booked, setBooked] = useState(null)
@@ -140,15 +147,15 @@ export default function NewRequest() {
     const next = addDays(weekStart, dir * 7)
     if (next < thisWeekStart || next > maxWeekStart) return
     setWeekStart(next)
-    setDate(weekWorkingDays(next, firstDay)[0] ?? date)
+    setDate(weekWorkingDays(next, firstDay, workDays)[0] ?? date)
     setSlot(null)
   }
 
   const treatment = treatmentId ? treatmentById[treatmentId] : null
   const duration = treatment?.durationMin ?? 30
   const slots = useMemo(
-    () => (therapistId && treatment ? buildSlots(date, therapistId, duration, appointments) : []),
-    [therapistId, treatment, date, duration, appointments],
+    () => (therapistId && treatment ? buildSlots(date, therapistId, duration, appointments, blocks, startHour, endHour) : []),
+    [therapistId, treatment, date, duration, appointments, blocks, startHour, endHour],
   )
 
   function pickTherapist(id) {
@@ -198,11 +205,11 @@ export default function NewRequest() {
           <p className="text-slate-500 mt-1 text-sm">שריינו לך מקום ביומן. נשלח תזכורת בוואטסאפ/SMS ל־{me?.phone ?? normalizePhone(phone)}.</p>
         </Card>
         <Card className="p-5">
-          <dl className="space-y-2.5 text-sm">
-            <Row label="טיפול"><span className="font-medium text-slate-700">{booked.visitType}</span></Row>
-            <Row label="מטפל/ת"><span className="font-medium text-slate-700">{t.name} · {t.specialty}</span></Row>
-            <Row label="מועד"><span className="font-medium text-slate-700">יום {dayName(booked.start)} {shortDate(booked.start)} · {hhmm(booked.start)}</span></Row>
-            <Row label="משך"><span className="font-medium text-slate-700">{booked.durationMin} דק׳</span></Row>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2.5 text-sm">
+            <Row label="טיפול">{booked.visitType}</Row>
+            <Row label="מטפל/ת">{t.name} · {t.specialty}</Row>
+            <Row label="מועד">יום {dayName(booked.start)} {shortDate(booked.start)} · {hhmm(booked.start)}</Row>
+            <Row label="משך">{booked.durationMin} דק׳</Row>
           </dl>
         </Card>
         <div className="flex flex-col gap-2">
@@ -339,8 +346,10 @@ export default function NewRequest() {
                     key={t.id}
                     onClick={() => pickTherapist(t.id)}
                     className={clsx(
-                      'w-full flex items-center gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
-                      therapistId === t.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
+                      'w-full flex items-center gap-3 rounded-xl ring-1 px-3 py-2.5 text-right cursor-pointer transition active:scale-[0.99]',
+                      therapistId === t.id
+                        ? 'ring-teal-500 bg-teal-50'
+                        : 'ring-slate-200 bg-white hover:ring-teal-300 hover:bg-teal-50/40 hover:shadow-sm active:bg-teal-50',
                     )}
                   >
                     <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
@@ -364,8 +373,10 @@ export default function NewRequest() {
                       key={tr.id}
                       onClick={() => pickTreatment(tr.id)}
                       className={clsx(
-                        'w-full flex items-center justify-between gap-3 rounded-xl ring-1 px-3 py-2.5 text-right transition',
-                        treatmentId === tr.id ? 'ring-teal-500 bg-teal-50' : 'ring-slate-200 bg-white',
+                        'w-full flex items-center justify-between gap-3 rounded-xl ring-1 px-3 py-2.5 text-right cursor-pointer transition active:scale-[0.99]',
+                        treatmentId === tr.id
+                          ? 'ring-teal-500 bg-teal-50'
+                          : 'ring-slate-200 bg-white hover:ring-teal-300 hover:bg-teal-50/40 hover:shadow-sm active:bg-teal-50',
                       )}
                     >
                       <span className="text-sm font-medium text-slate-800">{tr.name}</span>
@@ -394,7 +405,7 @@ export default function NewRequest() {
                   >
                     <ChevronRight size={15} />
                   </button>
-                  <span className="text-[11px] text-slate-400 tabular-nums w-20 text-center">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(addDays(weekStart, 4))}</span>
+                  <span className="text-[11px] text-slate-400 tabular-nums w-20 text-center">{shortDate(workingDays[0] ?? weekStart)}–{shortDate(workingDays[workingDays.length - 1] ?? addDays(weekStart, 6))}</span>
                   <button
                     type="button"
                     onClick={() => shiftWeek(1)}
@@ -808,12 +819,14 @@ function Stepper({ current, maxReachable, steps, onStepClick }) {
   )
 }
 
+// One row of the two-column summary grid: `dt`/`dd` are direct grid children so
+// the label column auto-sizes and every value column starts on the same line.
 function Row({ label, children }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-slate-500">{label}</dt>
-      <dd>{children}</dd>
-    </div>
+    <>
+      <dt className="text-slate-500 whitespace-nowrap">{label}:</dt>
+      <dd className="font-medium text-slate-700">{children}</dd>
+    </>
   )
 }
 

@@ -132,7 +132,7 @@ function TopBar({ onLogout, nav }) {
         <button
           onClick={() => navigate(-1)}
           aria-label="חזרה"
-          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-100 transition"
         >
           <ArrowRight size={18} className="shrink-0" />
           <span className="hidden sm:inline">חזרה</span>

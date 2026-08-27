@@ -159,7 +159,7 @@ export default function Reports() {
           ראשון–שני בבוקר. <b>המלצה:</b> להוסיף משבצת בוקר אצל ד״ר אבני בימי ראשון ולהפעיל תזכורת
           נוספת 3 שעות לפני התור לבקשות שסווגו כ״דחוף״.
           {clinicStats.unresolved > 0 && (
-            <> <b>שים/י לב:</b> {clinicStats.unresolved} תורים מהעבר טרם סומנו — שיעור אי-ההגעות חלקי עד לעדכונם.</>
+            <> <b>שים/י לב:</b> {clinicStats.unresolved} תורים מהעבר טרם עודכנו — שיעור אי-ההגעות חלקי עד לעדכונם.</>
           )}
         </p>
       </Card>
@@ -205,7 +205,7 @@ export default function Reports() {
         <div className="flex items-center gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle size={17} className="text-amber-600 shrink-0" />
           <span>
-            <b>{clinicStats.unresolved}</b> תורים מהעבר טרם סומנו (הגיע/לא הגיע) — הנתונים חלקיים עד לעדכונם בלוח הבקרה.
+            <b>{clinicStats.unresolved}</b> תורים מהעבר טרם עודכנו (הגיע/לא הגיע) — הנתונים חלקיים עד לעדכונם בלוח הבקרה.
           </span>
         </div>
       )}

@@ -23,7 +23,7 @@ const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green',
 function statusDisplay(appt) {
   const isFuture = appt.start > new Date()
   if (appt.status === 'קבוע') {
-    return isFuture ? { label: 'מתוכנן', tone: 'blue' } : { label: 'לא סומן', tone: 'amber' }
+    return isFuture ? { label: 'מתוכנן', tone: 'blue' } : { label: 'לא עודכן', tone: 'amber' }
   }
   return { label: appt.status, tone: STATUS_TONE[appt.status] ?? 'slate' }
 }
@@ -76,7 +76,7 @@ export default function VisitCard() {
 
   return (
     <div className="space-y-5 animate-fade max-w-4xl">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+      <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-sm text-slate-500 cursor-pointer hover:text-slate-700">
         <ChevronRight size={16} /> חזרה
       </button>
 

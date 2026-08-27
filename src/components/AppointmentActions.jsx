@@ -15,7 +15,7 @@ const STATUS_TONE = { קבוע: 'blue', הגיע: 'teal', הסתיים: 'green',
 // `compact` renders icon-only buttons (with tooltips) so the controls fit in
 // tight spots like the dashboard "today" list without squeezing the name.
 export default function AppointmentActions({ appt, size = 'sm', compact = false, className = '' }) {
-  const { setAppointmentStatus, markNoShow, revertNoShow, settings } = useData()
+  const { setAppointmentStatus, markNoShow, revertNoShow } = useData()
   const { role } = useSession()
 
   const isTherapist = role?.id === 'therapist'
@@ -59,9 +59,10 @@ export default function AppointmentActions({ appt, size = 'sm', compact = false,
   }
 
   // status === 'קבוע'
-  const noShowTitle = settings.autoNoShow
-    ? `במערכת האמיתית מסומן אוטומטית אחרי ${settings.noShowMinutes} דקות; כאן ידני לצורך ההדגמה`
-    : 'סימון אי-הגעה אוטומטי כבוי בהגדרות — סימון ידני בלבד'
+  // No-show is never auto-marked (see migration 11): a past unchecked appointment
+  // stays derived "unresolved-past" until the desk resolves it. Marking it is a
+  // manual front-desk action.
+  const noShowTitle = 'סימון התור כ״לא הגיע״ — פעולת מזכירה'
   return (
     <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
       <Button variant="soft" size={btnSize} title="הגיע"

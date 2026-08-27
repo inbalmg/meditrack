@@ -169,14 +169,23 @@ src/
   אי-הגעה → משימת פולו-אפ אוטומטית לפי `settings.followUpOnNoShow`),
   `bulkMarkNoShow(ids)` (סימון מרוכז של תורי-עבר שלא טופלו כ"לא הגיע", כל אחד מוליד משימת פולו-אפ),
   `saveClinicalNote(apptId, note)` (סיכום ביקור → `set_clinical_note` RPC), `setTaskStatus`, `addTask`, `updateTask`, `deleteTask`.
-- **תורים שלא טופלו (unresolved past):** תור "קבוע" שהמשבצת שלו הסתיימה ולא סומן הגיע/לא-הגיע = מצב
-  לא-פתור שמעוות דוחות. הזיהוי הוא **state נגזר** (`lib/appointments.js` → `isUnresolvedPast`/`selectUnresolved`),
-  ללא מוטציה שקטה; הפתרון אנושי. **UX היברידי:** Dashboard מציג רק **KPI קומפקטי** עם המונה שמנווט
-  ל-`/clinic/tasks` (`state.focus:'unresolved'`); **תור הסקירה המלא** — `UnresolvedAppointments.jsx`,
-  **אקורדיון רך מתקפל** (מקופל כברירת מחדל; ניווט מה-KPI פותח אותו) עם שורות `AppointmentActions` + סימון-מרוכז —
-  חי בלוח המשימות. Reports מציג הערת "נתונים חלקיים" כל עוד קיימים כאלה.
-- **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`autoNoShow`/`noShowMinutes`/`followUpOnNoShow`)
-  — משפיעות בפועל ברחבי האפליקציה.
+- **תורים שלא-עודכנו (מודל מבוסס-יום):** תור "קבוע" שהמשבצת שלו הסתיימה ולא עודכן הגיע/לא-הגיע.
+  הזיהוי הוא **state נגזר** (`lib/appointments.js`), ללא מוטציה שקטה; הפתרון אנושי. **שני מצבים לפי
+  יום-הקליניקה (Asia/Jerusalem, דרך `isClinicToday` ב-`lib/format.js`):** `isPastUnmarked` (הבסיס: נגמר+קבוע);
+  `isAwaitingUpdate` = תור **של היום** שהמשבצת נגמרה → **"ממתין לעדכון"**; `isUnresolvedPast`/`selectUnresolved`
+  = תור מ**יום קודם** → **"לא עודכן"** (backlog אמיתי שמעוות דוחות). **המעבר "ממתין לעדכון" → "לא עודכן" קורה
+  אוטומטית בחצות** — נגזר מהשוואת היום, ללא cron. **UX היברידי:** בלוח היום (Dashboard) תור שלא-עודכן שהמשבצת
+  שלו נגמרה **נשאר על הלוח** עם צ'יפ ענבר "ממתין לעדכון" ואינו נספר ב"נותרו להיום"; **KPI "תורים שלא עודכנו"
+  משקלל את שני הדליים יחד** (תורי היום "ממתין לעדכון" + תורי ימים קודמים "לא עודכן") עם מיקרו-קופי
+  `N מהיום · M מקודם` שמנווט ל-`/clinic/tasks` (`state.focus:'unresolved'`); **תור הסקירה** —
+  `UnresolvedAppointments.jsx`, **אקורדיון רך מתקפל** (מקופל כברירת מחדל; ניווט מה-KPI פותח אותו) עם שורות
+  `AppointmentActions` + סימון-מרוכז — מציג **ימים קודמים בלבד** ("לא עודכן"; תורי היום מטופלים בלוח היום),
+  חי בלוח המשימות. Reports מציג הערת "נתונים חלקיים" כל עוד קיימים תורי "לא עודכן".
+- **הגדרות:** `updateSettings` (`remindersEnabled`/`reminderHours`/`followUpOnNoShow`/`noShowSlaHours`/`overdueEnabled`/`overdueGraceHours`
+  + **שעות/ימי פעילות:** `workDays` [0=ראשון…6=שבת] / `workStartHour` / `workEndHour`) — משפיעות בפועל ברחבי האפליקציה.
+  **שעות/ימי הפעילות נשמרים ב-`clinics.settings` (ברירת מחדל א׳–ה׳, 09:00–18:00) והם המקור היחיד** לרשת היומן
+  (`Calendar`/`DoctorCalendar`) וליצירת המשבצות הפנויות (`QuickBookDialog`/`NewRequest`); `lib/format.js`
+  (`firstBookingDay`/`weekWorkingDays`) מקבל את `workDays` כפרמטר. **אין `autoNoShow`** — סימון אי-הגעה הוא ידני בלבד (ראו migration 11 ו-unresolved-past למעלה).
 
 ## אוטומציות
 

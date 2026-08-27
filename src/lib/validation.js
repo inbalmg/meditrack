@@ -96,20 +96,28 @@ export function emailValid(email) {
   return e === '' || EMAIL_RE.test(e)
 }
 
-// --- Settings: overdue-task grace window (hours) ---
-// Whole non-negative hours, no leading zeros ("07"), within range. Returns
-// { value, error } — value is the parsed integer when valid (else null), error is
-// a Hebrew message (else ''). Used by the Settings field before persisting.
-export const OVERDUE_GRACE_MIN = 0
-export const OVERDUE_GRACE_MAX = 72
-export function validateOverdueGraceHours(raw) {
+// --- Settings: bounded whole-number fields (minutes / hours) ---
+// Shared validator for the numeric Settings inputs: a whole number, digits only,
+// no leading zeros ("07"), within [min, max]. Returns { value, error } — value is
+// the parsed integer when valid (else null), error is a Hebrew message (else '').
+// Used by each Settings time field before persisting, so out-of-range or malformed
+// keystrokes are flagged and never committed.
+export function validateBoundedInt(raw, min, max) {
   const s = String(raw ?? '').trim()
-  if (s === '') return { value: null, error: 'יש להזין מספר שעות' }
+  if (s === '') return { value: null, error: 'יש להזין מספר' }
   if (!/^\d+$/.test(s)) return { value: null, error: 'יש להזין מספר שלם (ספרות בלבד, ללא סימנים או נקודה)' }
   if (s.length > 1 && s[0] === '0') return { value: null, error: 'אין להתחיל באפס מוביל' }
   const n = Number(s)
-  if (n < OVERDUE_GRACE_MIN || n > OVERDUE_GRACE_MAX) return { value: null, error: `יש להזין ערך בין ${OVERDUE_GRACE_MIN} ל-${OVERDUE_GRACE_MAX}` }
+  if (n < min || n > max) return { value: null, error: `יש להזין ערך בין ${min} ל-${max}` }
   return { value: n, error: '' }
+}
+
+// --- Settings: overdue-task grace window (hours) ---
+// Thin wrapper over validateBoundedInt with the overdue range baked in.
+export const OVERDUE_GRACE_MIN = 0
+export const OVERDUE_GRACE_MAX = 72
+export function validateOverdueGraceHours(raw) {
+  return validateBoundedInt(raw, OVERDUE_GRACE_MIN, OVERDUE_GRACE_MAX)
 }
 
 // Selectable/valid gender values (intake forms + validation). Kept to male/female

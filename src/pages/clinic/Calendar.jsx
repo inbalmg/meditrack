@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { addDays, isSameDay, subMonths } from 'date-fns'
-import { CalendarDays, Filter, X, Clock, Phone, ChevronRight, ChevronLeft } from 'lucide-react'
+import { CalendarDays, Filter, X, Clock, Phone, ChevronRight, ChevronLeft, Ban } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { useSession } from '../../session.jsx'
 import { Card, Badge, Avatar, Button } from '../../components/ui.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
+import BlockDialog from '../../components/BlockDialog.jsx'
 import {
   hhmm, dayName, shortDate, friendlyDate,
   weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
@@ -14,10 +16,7 @@ import { clsx } from '../../components/clsx.js'
 import { isUnresolvedPast } from '../../lib/appointments.js'
 import { VISIT_TYPES, VISIT_TYPE_SHORT } from '../../data/seed.js'
 
-const START_HOUR = 9
-const END_HOUR = 18
 const PX_PER_MIN = 1.6
-const DAYS = 5 // Sun–Thu
 
 const STATUS_RING = {
   קבוע: 'ring-white/40',
@@ -27,28 +26,58 @@ const STATUS_RING = {
 }
 
 // Assign overlapping appointments within a day to side-by-side lanes.
+// Column width is computed PER connected-overlap cluster (not globally over the
+// whole day) so a lone appointment with no overlap spans the full column width —
+// only appointments that actually overlap get subdivided.
 function layoutDay(appts) {
   const sorted = [...appts].sort((a, b) => a.start - b.start)
-  const lanes = [] // each lane holds the end time of its last appt
-  const placed = sorted.map((a) => {
-    const end = a.start.getTime() + a.durationMin * 60000
-    let lane = lanes.findIndex((laneEnd) => laneEnd <= a.start.getTime())
+  const placed = []
+  let cluster = [] // items in the current connected-overlap cluster
+  let lanes = [] // each lane holds the end time of its last appt (this cluster)
+  let clusterMaxEnd = -Infinity
+
+  const closeCluster = () => {
+    const columns = Math.max(1, lanes.length)
+    for (const item of cluster) item.columns = columns
+    cluster = []
+    lanes = []
+    clusterMaxEnd = -Infinity
+  }
+
+  for (const a of sorted) {
+    const start = a.start.getTime()
+    const end = start + a.durationMin * 60000
+    // A gap (start at/after everything seen so far) ends the current cluster.
+    if (start >= clusterMaxEnd) closeCluster()
+    let lane = lanes.findIndex((laneEnd) => laneEnd <= start)
     if (lane === -1) {
       lane = lanes.length
       lanes.push(end)
     } else {
       lanes[lane] = end
     }
-    return { appt: a, lane }
-  })
-  return { placed, laneCount: Math.max(1, lanes.length) }
+    const item = { appt: a, lane, columns: 1 }
+    cluster.push(item)
+    placed.push(item)
+    clusterMaxEnd = Math.max(clusterMaxEnd, end)
+  }
+  closeCluster()
+  return { placed }
 }
 
 export default function Calendar() {
-  const { appointments, patientById, activeTherapists, therapistById } = useData()
+  const { appointments, patientById, activeTherapists, therapistById, settings, blocks, removeBlock } = useData()
+  const { role } = useSession()
+  // Operating window (Settings): active weekdays + uniform daily hours [start, end).
+  const workDays = settings.workDays
+  const startHour = settings.workStartHour
+  const endHour = settings.workEndHour
   const [therapistFilter, setTherapistFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [selectedId, setSelectedId] = useState(null)
+  const [blockOpen, setBlockOpen] = useState(false)
+  const [blockToEdit, setBlockToEdit] = useState(null)
+  const [blockToRemove, setBlockToRemove] = useState(null)
 
   const selected = selectedId ? appointments.find((a) => a.id === selectedId) : null
 
@@ -68,8 +97,10 @@ export default function Calendar() {
     setSelectedId(null)
   }
 
-  const days = Array.from({ length: DAYS }, (_, i) => addDays(weekStart, i))
-  const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
+  // Columns = the clinic's active weekdays (weekStart is Sunday, so addDays(weekStart, dow)
+  // lands on that weekday). Rows = the operating hours.
+  const days = [...workDays].sort((a, b) => a - b).map((dow) => addDays(weekStart, dow))
+  const hours = Array.from({ length: Math.max(0, endHour - startHour) }, (_, i) => startHour + i)
 
   const filtered = useMemo(
     () =>
@@ -81,47 +112,69 @@ export default function Calendar() {
     [appointments, therapistFilter, typeFilter],
   )
 
-  const gridHeight = (END_HOUR - START_HOUR) * 60 * PX_PER_MIN
+  // Which blocks to DRAW (booking availability is unaffected — see isSlotBlocked).
+  // Bands span the full day column, so a per-therapist block would visually cover other
+  // providers' appointments in the combined view. Therefore: the "all therapists" view
+  // shows only clinic-wide blocks (therapist_id null); filtering to one therapist adds
+  // that therapist's personal blocks on top.
+  const visibleBlocks = useMemo(
+    () => blocks.filter((b) => b.therapistId === null || (therapistFilter !== 'all' && b.therapistId === therapistFilter)),
+    [blocks, therapistFilter],
+  )
+
+  const gridHeight = Math.max(0, endHour - startHour) * 60 * PX_PER_MIN
 
   return (
     <div className="space-y-5 animate-fade">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">יומן הקליניקה</h1>
-          <p className="text-slate-500 mt-0.5">תצוגה שבועית · {shortDate(days[0])}–{shortDate(days[DAYS - 1])} · 09:00–18:00</p>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+            <p className="text-slate-500">תצוגה שבועית · {shortDate(days[0])}–{shortDate(days[days.length - 1])}</p>
+            <div className="flex items-center gap-0.5 rounded-xl ring-1 ring-slate-200 bg-white p-0.5">
+              <button
+                onClick={() => shiftWeek(-1)}
+                disabled={!canPrev}
+                title="שבוע קודם"
+                className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button
+                onClick={() => setWeekStart(thisWeekStart)}
+                disabled={atThisWeek}
+                className={clsx('px-2 h-8 rounded-lg text-sm font-semibold transition',
+                  atThisWeek ? 'text-slate-400' : 'text-teal-700 hover:bg-teal-50')}
+              >
+                השבוע
+              </button>
+              <button
+                onClick={() => shiftWeek(1)}
+                disabled={!canNext}
+                title="שבוע הבא"
+                className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-0.5 rounded-xl ring-1 ring-slate-200 bg-white p-0.5">
+          {role.canApprove && (
             <button
-              onClick={() => shiftWeek(-1)}
-              disabled={!canPrev}
-              title="שבוע קודם"
-              className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+              onClick={() => setBlockOpen(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium text-amber-700 ring-1 ring-amber-200 bg-white hover:bg-amber-50 transition"
             >
-              <ChevronRight size={16} />
+              <Ban size={15} /> חסימת זמן
             </button>
-            <button
-              onClick={() => setWeekStart(thisWeekStart)}
-              disabled={atThisWeek}
-              className={clsx('px-2.5 h-8 rounded-lg text-sm font-medium transition',
-                atThisWeek ? 'text-slate-300' : 'text-teal-700 hover:bg-teal-50')}
-            >
-              היום
-            </button>
-            <button
-              onClick={() => shiftWeek(1)}
-              disabled={!canNext}
-              title="שבוע הבא"
-              className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
-            >
-              <ChevronLeft size={16} />
-            </button>
+          )}
+          <div className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 px-2 py-1">
+            <Filter size={15} className="text-slate-400 shrink-0" />
+            <Select value={therapistFilter} onChange={setTherapistFilter} ariaLabel="סינון לפי מטפל"
+              options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
+            <Select value={typeFilter} onChange={setTypeFilter} ariaLabel="סינון לפי סוג ביקור"
+              options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
           </div>
-          <Filter size={16} className="text-slate-400" />
-          <Select value={therapistFilter} onChange={setTherapistFilter} ariaLabel="סינון לפי מטפל"
-            options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
-          <Select value={typeFilter} onChange={setTypeFilter} ariaLabel="סינון לפי סוג ביקור"
-            options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
         </div>
       </div>
 
@@ -139,26 +192,29 @@ export default function Calendar() {
         <div className="overflow-x-auto scroll-thin">
           <div className="min-w-[760px]">
             {/* Day headers */}
-            <div className="grid" style={{ gridTemplateColumns: `56px repeat(${DAYS}, 1fr)` }}>
+            <div className="grid" style={{ gridTemplateColumns: `56px repeat(${days.length}, 1fr)` }}>
               <div className="border-b border-slate-100" />
               {days.map((d) => (
                 <div key={d} className={clsx('border-b border-r border-slate-100 py-2.5 text-center',
                   isSameDay(d, new Date()) && 'bg-teal-50/60')}>
-                  <p className="text-sm font-semibold text-slate-700">יום {dayName(d)}</p>
-                  <p className={clsx('text-xs', isSameDay(d, new Date()) ? 'text-teal-600 font-medium' : 'text-slate-400')}>
-                    {shortDate(d)}{isSameDay(d, new Date()) && ' · היום'}
+                  <p className={clsx('text-sm font-semibold', isSameDay(d, new Date()) ? 'text-teal-800' : 'text-slate-700')}>יום {dayName(d)}</p>
+                  <p className={clsx('text-xs inline-flex items-center justify-center gap-1.5', isSameDay(d, new Date()) ? 'text-teal-600 font-medium' : 'text-slate-400')}>
+                    {shortDate(d)}
+                    {isSameDay(d, new Date()) && (
+                      <Badge tone="teal" className="px-2 py-0">היום</Badge>
+                    )}
                   </p>
                 </div>
               ))}
             </div>
 
             {/* Time grid */}
-            <div className="grid relative" style={{ gridTemplateColumns: `56px repeat(${DAYS}, 1fr)`, height: gridHeight }}>
+            <div className="grid relative" style={{ gridTemplateColumns: `56px repeat(${days.length}, 1fr)`, height: gridHeight }}>
               {/* Hour labels */}
               <div className="relative">
                 {hours.map((h) => (
                   <div key={h} className="absolute right-2 -translate-y-1/2 text-xs text-slate-400 tabular-nums"
-                    style={{ top: (h - START_HOUR) * 60 * PX_PER_MIN }}>
+                    style={{ top: (h - startHour) * 60 * PX_PER_MIN }}>
                     {String(h).padStart(2, '0')}:00
                   </div>
                 ))}
@@ -166,22 +222,46 @@ export default function Calendar() {
 
               {days.map((d) => {
                 const dayAppts = filtered.filter((a) => isSameDay(a.start, d))
-                const { placed, laneCount } = layoutDay(dayAppts)
+                const { placed } = layoutDay(dayAppts)
                 return (
                   <div key={d} className={clsx('relative border-r border-slate-100',
                     isSameDay(d, new Date()) && 'bg-teal-50/30')}>
                     {/* hour lines */}
                     {hours.map((h) => (
                       <div key={h} className="absolute inset-x-0 border-t border-slate-100"
-                        style={{ top: (h - START_HOUR) * 60 * PX_PER_MIN }} />
+                        style={{ top: (h - startHour) * 60 * PX_PER_MIN }} />
                     ))}
+                    {/* manual blocks (behind appointments): gray hatched bands, click to edit/remove.
+                        Combined view shows clinic-wide only; a therapist filter adds their own. */}
+                    {visibleBlocks.filter((b) => isSameDay(b.start, d)).map((b) => {
+                      const bStartMin = b.start.getHours() * 60 + b.start.getMinutes() - startHour * 60
+                      const who = b.therapistId ? (therapistById[b.therapistId]?.name ?? '') : 'כל הקליניקה'
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => role.canApprove && setBlockToEdit(b)}
+                          title={`חסימה · ${who}${b.reason ? ' · ' + b.reason : ''}${role.canApprove ? ' — לחצו לעריכה או הסרה' : ''}`}
+                          className="absolute inset-x-1 rounded-lg bg-slate-200/80 ring-1 ring-slate-400/40 text-slate-600 overflow-hidden hover:bg-slate-300/80 transition text-right"
+                          style={{
+                            top: bStartMin * PX_PER_MIN + 1,
+                            height: b.durationMin * PX_PER_MIN - 2,
+                            backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(100,116,139,0.14) 5px, rgba(100,116,139,0.14) 10px)',
+                          }}
+                        >
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-bold truncate">
+                            <Ban size={12} className="shrink-0" /> {b.reason || 'חסום'} · {who}
+                          </span>
+                        </button>
+                      )
+                    })}
                     {/* appointments */}
-                    {placed.map(({ appt, lane }) => {
+                    {placed.map(({ appt, lane, columns }) => {
                       const t = therapistById[appt.therapistId]
                       const p = patientById[appt.patientId]
-                      const startMin = appt.start.getHours() * 60 + appt.start.getMinutes() - START_HOUR * 60
-                      const width = `calc(${100 / laneCount}% - 4px)`
-                      const left = `calc(${(lane * 100) / laneCount}% + 2px)`
+                      const startMin = appt.start.getHours() * 60 + appt.start.getMinutes() - startHour * 60
+                      const width = `calc(${100 / columns}% - 4px)`
+                      const left = `calc(${(lane * 100) / columns}% + 2px)`
                       return (
                         <div
                           key={appt.id}
@@ -198,11 +278,15 @@ export default function Calendar() {
                             right: left,
                             backgroundColor: t.color,
                           }}
-                          title={`${p.name} · ${appt.visitType} · ${t.name} · ${appt.status}`}
+                          title={isUnresolvedPast(appt)
+                            ? `תור שעבר - לא עודכן הגיע/לא הגיע\n${p.name} · ${appt.visitType} · ${t.name}`
+                            : `${p.name} · ${appt.visitType} · ${t.name} · ${appt.status}`}
                         >
-                          <p className="text-[11px] font-semibold leading-tight truncate">{hhmm(appt.start)} {p.name}</p>
+                          <p className="text-xs font-bold leading-tight truncate">
+                            <span className="font-medium text-white/70">{hhmm(appt.start)}</span> {p.name}
+                          </p>
                           {appt.durationMin >= 20 && (
-                            <p className="text-[10px] text-white/80 truncate leading-tight">
+                            <p className="text-[11px] text-white/75 truncate leading-tight">
                               {VISIT_TYPE_SHORT[appt.visitType] || appt.visitType}
                             </p>
                           )}
@@ -229,6 +313,27 @@ export default function Calendar() {
           onClose={() => setSelectedId(null)}
         />
       )}
+
+      {blockOpen && <BlockDialog onClose={() => setBlockOpen(false)} />}
+
+      {blockToEdit && (
+        <BlockDialog
+          editBlock={blockToEdit}
+          onClose={() => setBlockToEdit(null)}
+          onRemove={() => { const b = blockToEdit; setBlockToEdit(null); setBlockToRemove(b) }}
+        />
+      )}
+
+      {blockToRemove && (
+        <ConfirmDialog
+          title="הסרת החסימה?"
+          message={`${blockToRemove.therapistId ? (therapistById[blockToRemove.therapistId]?.name ?? '') : 'כל הקליניקה'} · ${friendlyDate(blockToRemove.start)} בשעה ${hhmm(blockToRemove.start)} · ${blockToRemove.durationMin} דק׳${blockToRemove.reason ? ' · ' + blockToRemove.reason : ''}`}
+          confirmLabel="כן, הסר/י חסימה"
+          cancelLabel="חזרה"
+          onConfirm={() => { removeBlock(blockToRemove.id); setBlockToRemove(null) }}
+          onClose={() => setBlockToRemove(null)}
+        />
+      )}
     </div>
   )
 }
@@ -247,8 +352,9 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
 
   return (
     <>
+    {createPortal(
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade"
+      className="fixed inset-0 z-50 flex justify-center items-start bg-slate-900/40 backdrop-blur-sm p-4 animate-fade"
       onClick={onClose}
     >
       <Card className="w-full max-w-md p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -306,7 +412,9 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
           )}
         </div>
       </Card>
-    </div>
+    </div>,
+      document.body,
+    )}
 
     {confirmCancel && (
       <ConfirmDialog
@@ -337,7 +445,7 @@ function Select({ value, onChange, options, ariaLabel }) {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label={ariaLabel}
-      className="h-9 rounded-xl ring-1 ring-slate-300 bg-white px-3 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+      className="h-8 rounded-lg ring-1 ring-slate-200 bg-white px-2.5 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer transition"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>

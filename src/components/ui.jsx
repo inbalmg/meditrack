@@ -18,7 +18,7 @@ export const Card = forwardRef(function Card({ as: Tag = 'div', className = '', 
   )
 })
 
-export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, className = '' }) {
+export function CardHeader({ title, subtitle, icon: Icon, action, badge, dark = false, className = '' }) {
   if (dark) {
     // Dark header bar matching the navigation sidebar (bg-ink-900).
     return (
@@ -33,6 +33,8 @@ export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, 
             <h3 className="font-semibold text-white truncate">{title}</h3>
             {subtitle && <p className="text-xs text-slate-300 truncate">{subtitle}</p>}
           </div>
+          {/* Status indicator sitting next to the title (e.g. "N באיחור"). */}
+          {badge}
         </div>
         {action}
       </div>
@@ -50,6 +52,7 @@ export function CardHeader({ title, subtitle, icon: Icon, action, dark = false, 
           <h3 className="font-semibold text-slate-800 truncate">{title}</h3>
           {subtitle && <p className="text-xs text-slate-500 truncate">{subtitle}</p>}
         </div>
+        {badge}
       </div>
       {action}
     </div>
@@ -97,7 +100,7 @@ export function Button({ variant = 'primary', size = 'md', className = '', child
   return (
     <button
       className={clsx(
-        'inline-flex items-center justify-center gap-1.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none',
+        'inline-flex items-center justify-center gap-1.5 rounded-xl font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:pointer-events-none',
         BTN_VARIANTS[variant],
         sizes[size],
         className,
@@ -131,7 +134,7 @@ const KPI_ACCENTS = {
 // `sub` renders inline, on the same baseline as the value (so every card's main
 // number sits on one shared row). `chevron` (default true for clickable cards) can
 // be turned off for tiles that only scroll within the page rather than navigate away.
-export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick, compact = false, sub, chevron = true }) {
+export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone = 'teal', accent, onClick, compact = false, sub, chevron = true, breakdown }) {
   const clickable = typeof onClick === 'function'
   const showChevron = clickable && chevron
   return (
@@ -153,19 +156,41 @@ export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone
       )}
       <div className="min-w-0 flex-1">
         <p className={clsx('text-slate-500 truncate', compact ? 'text-sm' : 'text-xs')}>{label}</p>
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="font-bold text-slate-800 tabular-nums shrink-0 text-2xl">{value}</span>
-          {delta && (
-            <span className={clsx('text-xs font-medium shrink-0', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
-              {delta}
-            </span>
-          )}
-          {sub && (
-            <span className="text-xs text-slate-500 truncate" title={typeof sub === 'string' ? sub : undefined}>
-              {sub}
-            </span>
-          )}
-        </div>
+        {breakdown ? (
+          // Direct status breakdown: each count sits next to its own status label
+          // (e.g. "4 נותרו · 5 הסתיימו · 2 לעדכון") — no single central number, no "total".
+          // Wraps within the tile width instead of forcing one wide non-shrinking line.
+          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-0.5">
+            {breakdown.map((seg, i) => {
+              const amber = seg.tone === 'amber'
+              return (
+                <span key={seg.label} className="inline-flex items-baseline">
+                  {i > 0 && <span className="text-slate-300 px-1" aria-hidden>·</span>}
+                  <span className={clsx('font-bold tabular-nums leading-none', seg.primary ? 'text-2xl' : 'text-base', amber ? 'text-amber-600' : 'text-slate-800')}>
+                    {seg.value}
+                  </span>
+                  <span className={clsx('text-xs leading-none mr-1', amber ? 'text-amber-600/80' : 'text-slate-500')}>
+                    {seg.label}
+                  </span>
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="font-bold text-slate-800 tabular-nums shrink-0 text-2xl">{value}</span>
+            {delta && (
+              <span className={clsx('text-xs font-medium shrink-0', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
+                {delta}
+              </span>
+            )}
+            {sub && (
+              <span className="text-xs text-slate-500 truncate" title={typeof sub === 'string' ? sub : undefined}>
+                {sub}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       {showChevron && (
         <ChevronDown size={16} className="absolute top-1/2 -translate-y-1/2 left-3 text-slate-400" />

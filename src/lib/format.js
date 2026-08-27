@@ -30,16 +30,26 @@ function clinicParts(d) {
 // Comparable YYYYMMDD of an instant in the clinic timezone (for today/tomorrow labels).
 const clinicYMD = (d) => { const p = clinicParts(d); return p.year * 10000 + p.month * 100 + p.day }
 
+// האם d נופל על אותו יום-קליניקה (Asia/Jerusalem) כמו now — לא לפי אזור-הזמן של הצופה.
+// משמש את הנגזרות ב-lib/appointments.js כדי להבחין בין "היום" ל"יום קודם" (המעבר בחצות).
+export const isClinicToday = (d, now = new Date()) =>
+  clinicYMD(d) === clinicYMD(now instanceof Date ? now : new Date(now))
+
 // כמה קדימה (וגם אחורה, ביומנים) מותר לנווט/לקבוע תורים.
 export const BOOKING_HORIZON_MONTHS = 6
 
 // תחילת השבוע הישראלי (ראשון) שמכיל את d.
 export const weekStartOf = (d) => startOfWeek(d, { weekStartsOn: 0 })
 
-// היום הראשון שניתן לקבוע בו תור: היום, או יום א׳–ה׳ הקרוב אם היום שישי/שבת.
-export function firstBookingDay() {
+// ברירת מחדל לימי עבודה (א׳–ה׳; 0=ראשון … 6=שבת) — משמשת כשלא הועברו workDays מההגדרות.
+export const DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
+
+// היום הראשון שניתן לקבוע בו תור: היום, או יום העבודה הפעיל הקרוב הבא (לפי workDays).
+// guard מונע לולאה אינסופית אם workDays ריק (מצב מנוע בהגדרות).
+export function firstBookingDay(workDays = DEFAULT_WORK_DAYS) {
   let d = startOfDay(new Date())
-  while (d.getDay() > 4) d = addDays(d, 1) // 0=ראשון … 4=חמישי
+  let guard = 0
+  while (!workDays.includes(d.getDay()) && guard++ < 14) d = addDays(d, 1)
   return d
 }
 
@@ -47,14 +57,13 @@ export function firstBookingDay() {
 export const maxBookingWeekStart = () =>
   weekStartOf(addMonths(new Date(), BOOKING_HORIZON_MONTHS))
 
-// ימי העבודה (א׳–ה׳) של שבוע נתון, לא לפני minDay (אם ניתן).
-export function weekWorkingDays(weekStart, minDay) {
-  const out = []
-  for (let i = 0; i <= 4; i++) {
-    const d = addDays(weekStart, i)
-    if (!minDay || d >= minDay) out.push(d)
-  }
-  return out
+// ימי העבודה של שבוע נתון לפי workDays (0=ראשון … 6=שבת), לא לפני minDay (אם ניתן).
+// weekStart הוא יום ראשון (weekStartsOn:0), כך ש-addDays(weekStart, dow) נותן את אותו יום בשבוע.
+export function weekWorkingDays(weekStart, minDay, workDays = DEFAULT_WORK_DAYS) {
+  return [...workDays]
+    .sort((a, b) => a - b)
+    .map((dow) => addDays(weekStart, dow))
+    .filter((d) => !minDay || d >= minDay)
 }
 
 export function hhmm(d) {
@@ -76,6 +85,7 @@ export function friendlyDate(d) {
   const target = clinicYMD(d)
   if (target === clinicYMD(now)) return 'היום'
   if (target === clinicYMD(new Date(now.getTime() + 86400000))) return 'מחר'
+  if (target === clinicYMD(new Date(now.getTime() - 86400000))) return 'אתמול'
   return `יום ${dayName(d)} · ${shortDate(d)}`
 }
 

@@ -8,7 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Info,
-  UserX,
+  ClockAlert,
   ClipboardList,
   CalendarPlus,
   ListPlus,
@@ -26,9 +26,9 @@ import RequestRow, { REQ_COLS } from '../../components/RequestRow.jsx'
 import AppointmentActions from '../../components/AppointmentActions.jsx'
 import QuickBookDialog from '../../components/QuickBookDialog.jsx'
 import EscalationDialog from '../../components/EscalationDialog.jsx'
-import { hhmm, relativeFromNow } from '../../lib/format.js'
+import { hhmm, relativeFromNow, friendlyDate, shortDate } from '../../lib/format.js'
 import { useNow } from '../../lib/useNow.js'
-import { isUnresolvedPast, selectUnresolved } from '../../lib/appointments.js'
+import { isPastUnmarked, selectUnresolved } from '../../lib/appointments.js'
 import { isTaskOverdue } from '../../lib/tasks.js'
 import { clsx } from '../../components/clsx.js'
 
@@ -49,6 +49,18 @@ function greetingFor(date) {
 // ריבוי בעברית: n=1 → הצורה המלאה ליחיד; אחרת "N <רבים>".
 function plural(n, one, many) {
   return n === 1 ? one : `${n} ${many}`
+}
+
+// עדיפות משימה בלוח "משימות להיום" — מדרג נמוך = קריטי יותר. איחור ודחיפות הם שני
+// המימדים שהופכים משימה לקריטית, ושילובם למעלה מבטיח שמשימה גם-באיחור-וגם-דחופה
+// לעולם לא תתפספס. tie-break בתוך מדרג = due עולה (הכי-ותיק/הכי-קרוב ראשון).
+function taskTier(t, now, settings) {
+  const overdue = isTaskOverdue(t, now, settings)
+  const urgent = t.urgency === 'דחוף'
+  if (overdue && urgent) return 0
+  if (overdue) return 1
+  if (urgent) return 2
+  return 3
 }
 
 // שורת סיכום טריאז' לברכה — רק פסוקיות רלוונטיות (בקשות/דחוף מוצגות רק אם >0).
@@ -133,15 +145,23 @@ export default function Dashboard() {
       return true
     })
 
-  // Tasks that matter today: due today or overdue, not yet done — overdue first.
+  // Tasks that matter today: due today or overdue, not yet done. Ranked by a priority
+  // tier (see taskTier) so the two things that make a task critical — being late and
+  // being flagged דחוף — float a late-urgent task to the very top; within a tier the
+  // earliest due wins (oldest-overdue first, otherwise chronological through the day).
   const todayTasks = useMemo(
     () =>
       tasks
         .filter((t) => t.status !== 'הושלם' && (isToday(t.due) || isTaskOverdue(t, now, settings)))
-        .sort((a, b) => (isTaskOverdue(a, now, settings) ? 0 : 1) - (isTaskOverdue(b, now, settings) ? 0 : 1) || a.due - b.due),
+        .sort((a, b) => taskTier(a, now, settings) - taskTier(b, now, settings) || a.due - b.due),
     [tasks, now, settings],
   )
   const overdueCount = todayTasks.filter((t) => isTaskOverdue(t, now, settings)).length
+  // Dashboard is a bounded, prioritized preview — not the full backlog (that lives in
+  // TasksBoard). Cap the rows so a growing overdue tail can't flood the panel; the
+  // header "N באיחור" chip + footer link keep everything reachable.
+  const TASKS_PREVIEW = 6
+  const displayedTasks = todayTasks.slice(0, TASKS_PREVIEW)
 
   // Today's schedule, grouped by start time so parallel appointments (several
   // therapists at once) share a single time label.
@@ -149,21 +169,23 @@ export default function Dashboard() {
     () => appointments.filter((a) => isToday(a.start)).sort((a, b) => a.start - b.start),
     [appointments],
   )
-  // "לוח היום" מציג רק תורים רלוונטיים כרגע: קרובים או פעילים (הגיע / רץ באיחור — עדיין
-  // בתוך המשבצת). תורים סופיים (הסתיים / לא הגיע) שייכים ליומן/היסטוריה, ותורים שעברו
-  // וטרם סומנו שייכים לתור הסקירה (KPI → לוח משימות) — לכן שניהם לא מוצגים כאן.
-  const visibleToday = useMemo(
+  // "לוח היום" מחלק את תורי היום לשלושה דליים. (א) פעיל/נותר — קרוב או פעיל (הגיע / קבוע
+  // שעדיין בתוך המשבצת); זה מה שנספר ב"נותרו להיום". (ב) ממתין לעדכון — קבוע שהמשבצת שלו
+  // הסתיימה וטרם עודכן; נשאר על הלוח עם צ'יפ ענבר "ממתין לעדכון" במקום להיעלם,
+  // אך אינו נספר ב"נותרו". (ג) סופי — הסתיים/לא הגיע (מטופל למטה כ-resolvedToday).
+  const activeToday = useMemo(
     () =>
       todayAppts.filter(
-        (a) => a.status === 'הגיע' || (a.status === 'קבוע' && !isUnresolvedPast(a, now)),
+        (a) => a.status === 'הגיע' || (a.status === 'קבוע' && !isPastUnmarked(a, now)),
       ),
     [todayAppts, now],
   )
-  const visibleCount = visibleToday.length
-  // KPI reconciliation: main number = the remaining active count the schedule shows;
-  // the rest of today's appointments (finished / no-show / unmarked) are the context.
-  const todayTotal = todayAppts.length
-  const todayDone = todayTotal - visibleCount
+  const awaitingToday = useMemo(
+    () => todayAppts.filter((a) => isPastUnmarked(a, now)),
+    [todayAppts, now],
+  )
+  // "נותרו להיום" סופר רק את הפעילים — לא את הממתינים-לעדכון ולא את הסופיים.
+  const visibleCount = activeToday.length
   // Today's finished visits stay on the board all day (muted) so the desk keeps a record
   // of what already happened — completed AND no-shows. They're context, not part of the
   // "remaining" count, and a no-show row keeps its "שחזר" (revert) control for mis-clicks.
@@ -171,7 +193,20 @@ export default function Dashboard() {
     () => todayAppts.filter((a) => a.status === 'הסתיים' || a.status === 'לא הגיע'),
     [todayAppts],
   )
-  const timelineToday = useMemo(() => [...visibleToday, ...resolvedToday], [visibleToday, resolvedToday])
+  const timelineToday = useMemo(
+    () => [...activeToday, ...awaitingToday, ...resolvedToday],
+    [activeToday, awaitingToday, resolvedToday],
+  )
+  // "תורים להיום" KPI: a direct status breakdown instead of a single central number +
+  // "total". Each count sits next to its own status label (נותרו · הסתיימו · לעדכון).
+  // "נותרו" always shows (the primary remaining count, even 0); finished/awaiting only when
+  // present. "לעדכון" is amber to flag it needs attention (matches the schedule's chip).
+  const todayBreakdown = useMemo(() => {
+    const segs = [{ value: visibleCount, label: 'נותרו', primary: true }]
+    if (resolvedToday.length) segs.push({ value: resolvedToday.length, label: 'הסתיימו' })
+    if (awaitingToday.length) segs.push({ value: awaitingToday.length, label: 'לעדכון', tone: 'amber' })
+    return segs
+  }, [visibleCount, resolvedToday.length, awaitingToday.length])
   const todayGroups = useMemo(() => {
     const map = new Map()
     for (const a of timelineToday) {
@@ -182,13 +217,29 @@ export default function Dashboard() {
     return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([time, appts]) => ({ time, appts }))
   }, [timelineToday])
 
-  // "הבא בתור" = התור הקרוב ביותר שעדיין לא התחיל (מבין המוצגים).
-  const nextAppt = visibleToday.find((a) => a.start.getTime() >= now.getTime())
+  // "הבא בתור" = התור הקרוב ביותר שעדיין לא התחיל (מבין הפעילים).
+  const nextAppt = activeToday.find((a) => a.start.getTime() >= now.getTime())
   const nextTime = nextAppt ? nextAppt.start.getTime() : null
 
-  // Unresolved past appointments (slot ended, still 'קבוע'): surfaced here only as
-  // a count. The KPI deep-links to the full review queue on the Tasks board.
-  const unresolvedCount = useMemo(() => selectUnresolved(appointments, now).length, [appointments, now])
+  // Unmarked past appointments (slot ended, still 'קבוע'): surfaced here as a count that
+  // combines both buckets — today's "ממתין לעדכון" (awaitingToday) + prior days' "לא עודכן"
+  // (selectUnresolved). Micro-copy splits today vs prior so one number stays legible. The
+  // KPI deep-links to the review queue on the Tasks board (prior days only — today's are
+  // handled on the schedule board above).
+  const unresolvedToday = awaitingToday.length
+  const unresolvedPrior = useMemo(
+    () => selectUnresolved(appointments, now).length,
+    [appointments, now],
+  )
+  const unresolvedCount = unresolvedToday + unresolvedPrior
+  const unresolvedSub =
+    unresolvedCount === 0
+      ? undefined
+      : unresolvedToday && unresolvedPrior
+        ? `${unresolvedToday} מהיום · ${unresolvedPrior} קודמים`
+        : unresolvedToday
+          ? `${unresolvedToday} מהיום`
+          : `${unresolvedPrior} מקודם`
 
   return (
     <div className="space-y-6 animate-fade">
@@ -211,7 +262,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-1 min-w-0">
           <Kpi
             compact
-            label="בקשות לאישור"
+            label="בקשות לטיפול"
             value={pending.length}
             icon={ClipboardList}
             tone="blue"
@@ -225,31 +276,25 @@ export default function Dashboard() {
             delta={overdueCount ? `· ${overdueCount} באיחור` : ''}
             deltaTone="red"
             icon={ListTodo}
-            tone="amber"
+            tone="purple"
             chevron={false}
             onClick={() => scrollTo(tasksRef)}
           />
           <Kpi
             compact
             label="תורים להיום"
-            value={visibleCount}
-            sub={
-              todayTotal === 0
-                ? undefined
-                : visibleCount === 0
-                  ? `כל ${todayTotal} התורים הסתיימו`
-                  : `מתוך ${todayTotal} להיום (${todayDone} הסתיימו)`
-            }
+            breakdown={todayBreakdown}
             icon={CalendarDays}
             tone="slate"
             onClick={() => navigate('/clinic/calendar')}
           />
           <Kpi
             compact
-            label="תורים שלא סומנו"
+            label="תורים שלא עודכנו"
             value={unresolvedCount}
-            icon={UserX}
-            tone={unresolvedCount > 0 ? 'red' : 'slate'}
+            sub={unresolvedSub}
+            icon={ClockAlert}
+            tone={unresolvedCount > 0 ? 'amber' : 'slate'}
             onClick={() => navigate('/clinic/tasks', { state: { focus: 'unresolved' } })}
           />
         </div>
@@ -375,8 +420,23 @@ export default function Dashboard() {
               dark
               title="משימות להיום"
               icon={ListTodo}
+              badge={
+                /* Status indicator next to the title — always visible even when some late
+                   tasks fall below the preview cap, so the critical backlog is never hidden.
+                   Soft, semi-transparent red to signal without shouting. */
+                overdueCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/clinic/tasks?filter=overdue')}
+                    title="הצג בלוח המשימות את המשימות שבאיחור בלבד"
+                    className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2.5 py-0.5 text-xs font-medium text-red-300 ring-1 ring-red-400/25 hover:bg-red-500/25 transition shrink-0"
+                  >
+                    <AlertTriangle size={12} className="shrink-0" /> {overdueCount} באיחור
+                  </button>
+                )
+              }
               action={
-                <Link to="/clinic/tasks" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5">
+                <Link to="/clinic/tasks" className="text-sm text-teal-300 hover:text-teal-200 flex items-center gap-0.5 shrink-0">
                   לכל המשימות <ChevronLeft size={15} />
                 </Link>
               }
@@ -385,18 +445,27 @@ export default function Dashboard() {
               {todayTasks.length === 0 ? (
                 <Empty icon={CheckCircle2} title="אין משימות להיום" />
               ) : (
-                todayTasks.map((t) => {
+                displayedTasks.map((t) => {
                   const overdue = isTaskOverdue(t, now, settings)
+                  const dueToday = isToday(t.due)
                   const dot = overdue
                     ? 'bg-red-500'
                     : t.source === 'אוטומציה'
                       ? 'bg-amber-400'
                       : 'bg-slate-400'
-                  // Anchor the target time to when the task originated, so "14:10"
-                  // doesn't read as disconnected: for a no-show follow-up show the
-                  // triggering appointment time; otherwise how long ago it opened.
+                  // Date qualifier under the due time. Anything not due today is (by this
+                  // list's filter) necessarily overdue from an earlier day — name the day
+                  // so "13:50" never reads as today's; same-day-late shows just "באיחור".
+                  const dueDateLabel = !dueToday
+                    ? `${friendlyDate(t.due) === 'אתמול' ? 'אתמול' : shortDate(t.due)} · באיחור`
+                    : overdue
+                      ? 'באיחור'
+                      : null
+                  // Secondary line: for a no-show follow-up, the triggering appointment
+                  // time — a past EVENT, prose-labelled so it never reads as a second
+                  // deadline against the "עד" time; otherwise how long ago it opened.
                   const origin = t.sourceAt
-                    ? `בעקבות אי-הגעה לתור ${hhmm(t.sourceAt)}`
+                    ? `אי-הגעה לתור ${hhmm(t.sourceAt)}`
                     : t.createdAt
                       ? `נוצר ${relativeFromNow(t.createdAt)}`
                       : null
@@ -405,11 +474,11 @@ export default function Dashboard() {
                       key={t.id}
                       className={clsxRow(overdue)}
                     >
-                      <div className="text-center w-11 shrink-0">
+                      <div className="text-center w-20 shrink-0">
                         <p className={`text-xs font-semibold tabular-nums ${overdue ? 'text-red-600' : 'text-slate-600'}`}>
-                          {hhmm(t.due)}
+                          עד {hhmm(t.due)}
                         </p>
-                        {overdue && <p className="text-[10px] text-red-600">באיחור</p>}
+                        {dueDateLabel && <p className="text-[10px] text-red-600">{dueDateLabel}</p>}
                       </div>
                       <span className={`h-2 w-2 rounded-full shrink-0 ${dot} mt-1.5 self-start`} />
                       <div className="flex-1 min-w-0">
@@ -420,16 +489,33 @@ export default function Dashboard() {
                           </p>
                         )}
                       </div>
-                      {t.source === 'אוטומציה' ? (
-                        <Badge tone="purple">אוטומציה</Badge>
-                      ) : (
-                        <Badge tone="slate">ידני</Badge>
-                      )}
+                      {/* Urgency and source are independent channels — a דחוף auto task
+                          shows both badges (urgency above source), never one slot. */}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {t.urgency === 'דחוף' && (
+                          <Badge tone="red"><AlertTriangle size={11} /> דחוף</Badge>
+                        )}
+                        {t.source === 'אוטומציה' ? (
+                          <Badge tone="purple">אוטומציה</Badge>
+                        ) : (
+                          <Badge tone="slate">ידני</Badge>
+                        )}
+                      </div>
                     </div>
                   )
                 })
               )}
             </div>
+            {/* Beyond the preview cap → the full board (keeps this panel bounded-height
+                so an overdue backlog can't flood the dashboard). */}
+            {todayTasks.length > TASKS_PREVIEW && (
+              <Link
+                to="/clinic/tasks"
+                className="w-full border-t border-slate-100 px-4 py-2.5 text-sm font-medium text-teal-700 hover:bg-slate-50 transition flex items-center justify-center gap-1"
+              >
+                לכל המשימות ({todayTasks.length})
+              </Link>
+            )}
           </Card>
         </div>
 
@@ -482,6 +568,11 @@ export default function Dashboard() {
                         // Resolved visits (completed or no-show) stay listed but muted
                         // (record, not "to-do").
                         const muted = a.status === 'הסתיים' || a.status === 'לא הגיע'
+                        // Slot ended but still 'קבוע' — stays on the board with an amber
+                        // "ממתין לעדכון" chip. This board is today-only, so a past-slot
+                        // unmarked appointment is always "awaiting update" (it becomes
+                        // "לא עודכן" only after midnight, once it's a prior day — off this board).
+                        const pastUnmarked = isPastUnmarked(a, now)
                         return (
                           <div
                             key={a.id}
@@ -493,7 +584,14 @@ export default function Dashboard() {
                           >
                             <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                             <div className="flex-1 min-w-0">
-                              <p className={clsx('text-sm font-medium truncate', muted ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className={clsx('text-sm font-medium truncate', muted ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
+                                {pastUnmarked && (
+                                  <Badge tone="amber" className="shrink-0">
+                                    ממתין לעדכון
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-xs text-slate-600 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
                             </div>
                             <AppointmentActions appt={a} compact />
