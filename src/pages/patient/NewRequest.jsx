@@ -298,9 +298,9 @@ export default function NewRequest() {
   return (
     <div className="animate-fade space-y-5 max-w-xl mx-auto">
       <div>
-        <p className="text-teal-600 text-sm font-medium">שלום {firstName} 👋</p>
+        <p className="text-teal-700 text-sm font-medium">שלום {firstName} 👋</p>
         <h1 className="text-xl font-bold text-slate-800 mt-0.5">{rescheduling ? 'שינוי מועד' : 'קביעת תור'}</h1>
-        <p className="text-slate-500 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
+        <p className="text-slate-600 text-sm mt-0.5">בחרו מטפל/ת, טיפול ומועד — התור נשמר מיד</p>
       </div>
 
       {rescheduling && (
@@ -811,7 +811,7 @@ function Stepper({ current, maxReachable, steps, onStepClick }) {
               {/* leading connector (to the left, toward later steps in RTL) */}
               <span className={clsx('h-0.5 flex-1', isLast ? 'opacity-0' : (n < current ? 'bg-teal-500' : 'bg-slate-200'))} />
             </div>
-            <span className={clsx('mt-1.5 text-[11px] text-center leading-tight px-1', isActive ? 'font-semibold text-teal-700' : 'text-slate-500')}>{label}</span>
+            <span className={clsx('mt-1.5 text-[11px] text-center leading-tight px-1', isActive ? 'font-semibold text-teal-700' : 'text-slate-600')}>{label}</span>
           </div>
         )
       })}
