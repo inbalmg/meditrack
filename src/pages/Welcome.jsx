@@ -46,6 +46,61 @@ const CSS = `
   .mtw-card:hover .mtw-chev{ transform:none; }
   .mtw-card:hover .mtw-iconwrap{ transform:none; }
 }
+
+/* ----------------------------------------------------------------------------
+   מובייל (< md / 768px) בלבד. הפריסה הדסקטופית היא שני טורים עם היסטים קשיחים
+   (translateX/Y, space-between על 100vh) — כאן מנטרלים אותם, מכווצים את ההירו
+   לכותרת-מותג קומפקטית, ומיישרים הכל לציר מרכזי אחד כדי שכרטיסי הכניסה יעלו
+   לראש המסך. אינו משפיע על ≥768px.
+---------------------------------------------------------------------------- */
+@media (max-width: 767.98px){
+  /* שני הטורים נערמים; אורזים אותם לראש כדי שלא יימתחו למלוא הגובה (מונע פער ריק) */
+  .mtw-root{ align-content:flex-start !important; }
+
+  /* ביטול ההיסטים הדסקטופיים → ציר מרכזי משותף */
+  .mtw-hero-title, .mtw-panel-inner, .mtw-trust{ transform:none !important; }
+
+  /* ההירו הופך לכותרת עליונה קומפקטית (לא נפרש על כל הגובה) */
+  .mtw-hero{
+    flex:0 0 auto !important;
+    justify-content:flex-start !important;
+    gap:1.6em;
+    padding:2.2em 1.6em 0.6em !important;
+  }
+  .mtw-logo{
+    align-self:center !important;
+    width:12.5em !important;
+    margin-bottom:0.2em;
+  }
+
+  /* היררכיה טיפוגרפית מאוזנת יותר */
+  .mtw-hero-title{ margin:0 !important; }
+  .mtw-hero-title h1{ font-size:2.15em !important; line-height:1.28 !important; }
+  .mtw-hero-title p{ font-size:1.15em !important; margin-top:0.5em !important; }
+
+  /* מודול האמון נעשה שורת הרגעה דקה */
+  .mtw-trust{ max-width:24em; margin:0 auto; }
+  .mtw-trust > div:last-child{ gap:0.65em !important; }
+  .mtw-trust svg[viewBox="0 0 28 32"]{ width:1.9em !important; height:2.15em !important; }
+  .mtw-trust p{ font-size:1.05em !important; }
+
+  /* הפאנל: ממורכז, אותו רוחב/פדינג כמו ההירו */
+  .mtw-panel{
+    flex:1 1 auto !important;
+    justify-content:flex-start !important;
+    padding:0.6em 1.6em 2.4em !important;
+  }
+  .mtw-panel-inner{
+    max-width:26em !important;
+    gap:1.4em !important;
+  }
+  .mtw-heading{ font-size:2.05em !important; }
+
+  /* כרטיסים מעודנים — אותו מבנה, פחות אוויר, אייקון קטן יותר → כותרת בשורה אחת */
+  .mtw-card{ padding:1.15em 1.35em !important; gap:1em !important; border-radius:1em !important; }
+  .mtw-iconwrap{ width:4.6em !important; height:4.6em !important; }
+  .mtw-card .mtw-chev{ width:1.9em !important; height:1.9em !important; }
+}
 `
 
 /* ------------------------------- Logo mark --------------------------------- */
@@ -58,11 +113,11 @@ const CSS = `
  */
 const BRAND_FONT = "'Poppins', 'Heebo', Helvetica, Arial, sans-serif"
 
-function LogoMark({ style }) {
+function LogoMark({ style, className }) {
   // ציר-מרכז משותף ל-MediTrack ו-CLINIC (CLINIC ממורכז בדיוק מתחת ל-MediTrack).
   const TEXT_CX = 170
   return (
-    <svg viewBox="0 0 455 200" role="img" aria-label="MediTrack Clinic" style={style}>
+    <svg viewBox="0 0 455 200" role="img" aria-label="MediTrack Clinic" style={style} className={className}>
       <title>MediTrack Clinic</title>
       <defs>
         <linearGradient id="mtGrad" x1="0" y1="0" x2="1" y2="1">
@@ -447,6 +502,7 @@ export default function Welcome({ heading, onBack, children }) {
 
       {/* ---------- HERO (ימין) ---------- */}
       <section
+        className="mtw-hero"
         style={{
           position: 'relative',
           flex: '1 1 50%',
@@ -460,6 +516,7 @@ export default function Welcome({ heading, onBack, children }) {
         }}
       >
         <LogoMark
+          className="mtw-logo"
           style={{
             width: '17.5em',
             height: 'auto',
@@ -470,7 +527,7 @@ export default function Welcome({ heading, onBack, children }) {
           }}
         />
 
-        <div style={{ transform: 'translateX(2.8em) translateY(-4.2em)', textAlign: 'center', maxWidth: '38em', margin: 'auto 0' }}>
+        <div className="mtw-hero-title" style={{ transform: 'translateX(2.8em) translateY(-4.2em)', textAlign: 'center', maxWidth: '38em', margin: 'auto 0' }}>
           <h1
             style={{
               margin: 0,
@@ -506,7 +563,7 @@ export default function Welcome({ heading, onBack, children }) {
         </div>
 
         {/* מודול אבטחה */}
-        <div style={{ position: 'relative', width: '100%', transform: 'translateX(2.8em)', flex: 'none' }}>
+        <div className="mtw-trust" style={{ position: 'relative', width: '100%', transform: 'translateX(2.8em)', flex: 'none' }}>
           <div style={{ position: 'absolute', top: '-2.1em', right: '5.6em', width: '2.9em', height: '2.9em', pointerEvents: 'none' }}>
             <SparkleIcon />
           </div>
@@ -533,6 +590,7 @@ export default function Welcome({ heading, onBack, children }) {
 
       {/* ---------- ברוכים הבאים + כרטיסים (שמאל) ---------- */}
       <section
+        className="mtw-panel"
         style={{
           position: 'relative',
           flex: '1 1 50%',
@@ -546,6 +604,7 @@ export default function Welcome({ heading, onBack, children }) {
         }}
       >
         <div
+          className="mtw-panel-inner"
           style={{
             transform: 'translateX(1.2em) translateY(-2.6em)',
             width: '100%',
@@ -564,6 +623,7 @@ export default function Welcome({ heading, onBack, children }) {
               </button>
             )}
             <h2
+              className="mtw-heading"
               style={{
                 margin: 0,
                 fontSize: '2.5em',
