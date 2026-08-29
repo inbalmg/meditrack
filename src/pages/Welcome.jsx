@@ -603,35 +603,8 @@ export default function Welcome({ heading, onBack, children }) {
           </p>
         </div>
 
-<<<<<<< HEAD
-        {/* מודול אבטחה */}
-        <div className="mtw-trust" style={{ position: 'relative', width: '100%', transform: 'translateX(2.8em)', flex: 'none' }}>
-          <div style={{ position: 'absolute', top: '-2.1em', right: '5.6em', width: '2.9em', height: '2.9em', pointerEvents: 'none' }}>
-            <SparkleIcon />
-          </div>
-          <div
-            style={{
-              height: '1px',
-              width: '100%',
-              marginBottom: '1.6em',
-              background:
-                'linear-gradient(to left, rgba(205,250,250,0) 0%, rgba(160,225,225,0.16) 42%, rgba(215,255,255,0.85) 88%, rgba(215,255,255,0) 100%)',
-              boxShadow: '0 0 0.9em rgba(180,240,240,0.28)',
-            }}
-          />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.85em' }}>
-            <ShieldIcon />
-            <p style={{ margin: 0, fontSize: '1.25em', lineHeight: 1.45, color: '#a9c2c8', textAlign: 'right' }}>
-              המערכת מאובטחת 
-              <br />
-              הנתונים שלכם מוגנים
-            </p>
-          </div>
-        </div>
-=======
         {/* מודול אבטחה — דסקטופ: בתחתית ההירו (מוסתר במובייל) */}
         <SecurityModule className="mtw-trust-hero" style={{ transform: 'translateX(2.8em)', flex: 'none' }} sparkle />
->>>>>>> devVersion2
       </section>
 
       {/* ---------- ברוכים הבאים + כרטיסים (שמאל) ---------- */}
