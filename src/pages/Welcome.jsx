@@ -74,7 +74,8 @@ const CSS = `
     padding:2.2em 1.6em 0.6em !important;
   }
   .mtw-logo{
-    align-self:center !important;
+    align-self:flex-start !important; /* יישור הלוגו/שם-המערכת לימין (RTL) */
+    transform:none !important;
     width:12.5em !important;
     margin-bottom:0.2em;
   }
@@ -94,16 +95,18 @@ const CSS = `
     max-width:26em !important;
     gap:1.4em !important;
   }
-  .mtw-heading{ font-size:2.05em !important; }
+  .mtw-heading{ font-size:2.05em !important; text-align:center !important; }
 
   /* כרטיסים מעודנים — אותו מבנה, פחות אוויר, אייקון קטן יותר → כותרת בשורה אחת */
   .mtw-card{ padding:1.15em 1.35em !important; gap:1em !important; border-radius:1em !important; }
   .mtw-iconwrap{ width:4.6em !important; height:4.6em !important; }
   .mtw-card .mtw-chev{ width:1.9em !important; height:1.9em !important; }
 
-  /* מודול האבטחה — מתחת לכרטיסים, גרסה נקייה (ללא נצנוץ) */
+  /* מודול האבטחה — מתחת לכרטיסים, גרסה נקייה (ללא נצנוץ), מיושר לימין בשורה אחת */
   .mtw-trust-mobile{ display:block !important; margin-top:0.3em; }
-  .mtw-trust-mobile p{ font-size:1.05em !important; }
+  .mtw-trust-mobile > div:last-child{ justify-content:flex-start !important; } /* הצמדת הקבוצה לימין (RTL) */
+  .mtw-trust-mobile br{ display:none !important; }                              /* טקסט בשורה אחת */
+  .mtw-trust-mobile p{ font-size:1.05em !important; white-space:nowrap !important; }
 }
 `
 
@@ -382,9 +385,10 @@ function SecurityModule({ className, style, sparkle = false }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.85em' }}>
         <ShieldIcon />
         <p style={{ margin: 0, fontSize: '1.25em', lineHeight: 1.45, color: '#a9c2c8', textAlign: 'right' }}>
-          המערכת מאובטחת
+          {/* רווח מפורש נשמר כדי שבמובייל (כשה-<br> מוסתר) המילים לא יידבקו */}
+          {'המערכת מאובטחת '}
           <br />
-          הנתונים שלכם מוגנים
+          {'הנתונים שלכם מוגנים'}
         </p>
       </div>
     </div>
