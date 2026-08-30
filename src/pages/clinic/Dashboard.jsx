@@ -582,17 +582,17 @@ export default function Dashboard() {
                               muted && 'opacity-60',
                             )}
                           >
-                            <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                            <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t?.color }} />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <p className={clsx('text-sm font-medium truncate', muted ? 'text-slate-500' : 'text-slate-800')}>{p.name}</p>
+                                <p className={clsx('text-sm font-medium truncate', muted ? 'text-slate-500' : 'text-slate-800')}>{p?.name ?? 'מטופל/ת'}</p>
                                 {pastUnmarked && (
                                   <Badge tone="amber" className="shrink-0">
                                     ממתין לעדכון
                                   </Badge>
                                 )}
                               </div>
-                              <p className="text-xs text-slate-600 truncate">{a.visitType} · {t.name} · {a.durationMin} דק׳</p>
+                              <p className="text-xs text-slate-600 truncate">{a.visitType} · {t?.name ?? ''} · {a.durationMin} דק׳</p>
                             </div>
                             <AppointmentActions appt={a} compact />
                           </div>

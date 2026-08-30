@@ -156,6 +156,9 @@ export default function DoctorCalendar() {
                     })}
                     {dayAppts.map((a) => {
                       const p = patientById[a.patientId]
+                      // A newly self-booked patient's appointment can stream in over Realtime
+                      // before their patient row does — fall back so it never white-screens.
+                      const patientName = p?.name ?? 'מטופל/ת'
                       const startMin = a.start.getHours() * 60 + a.start.getMinutes() - startHour * 60
                       return (
                         <button
@@ -163,10 +166,10 @@ export default function DoctorCalendar() {
                           onClick={() => navigate(`/doctor/visit/${a.id}`)}
                           className="absolute inset-x-1 rounded-lg px-2 py-0.5 text-white text-right overflow-hidden shadow-sm hover:brightness-110 transition"
                           style={{ top: startMin * PX_PER_MIN + 1, height: a.durationMin * PX_PER_MIN - 2, backgroundColor: me.color }}
-                          title={`${p.name} · ${a.visitType}`}
+                          title={`${patientName} · ${a.visitType}`}
                         >
                           <p className="text-xs font-bold leading-tight truncate">
-                            <span className="font-medium text-white/70">{hhmm(a.start)}</span> {p.name}
+                            <span className="font-medium text-white/70">{hhmm(a.start)}</span> {patientName}
                           </p>
                           {a.durationMin >= 20 && (
                             <p className="text-[11px] text-white/75 truncate leading-tight">

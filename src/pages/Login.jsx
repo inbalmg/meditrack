@@ -58,7 +58,8 @@ export default function Login() {
         <WelcomeCard
           icon={<CircleIcon icon={UserRound} />}
           title="רותם ברק"
-          subtitle="מטופל/ת רשומ/ה · 050-1234567"
+          // מספר הטלפון עטוף ב-nowrap כדי שלא יישבר לשתי שורות בכרטיס הצר במובייל
+          subtitle={<>מטופל/ת רשומ/ה · <span style={{ whiteSpace: 'nowrap' }}>050-1234567</span></>}
           onClick={() => enter('patient@meditrack.test')}
         />
         <WelcomeCard

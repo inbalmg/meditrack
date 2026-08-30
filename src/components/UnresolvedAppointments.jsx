@@ -100,11 +100,11 @@ const UnresolvedAppointments = forwardRef(function UnresolvedAppointments({ high
               const t = therapistById[a.therapistId]
               return (
                 <div key={a.id} className="flex items-center gap-2.5 px-4 py-2.5 border-t border-slate-100">
-                  <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                  <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: t?.color }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                    <p className="text-sm font-medium text-slate-800 truncate">{p?.name ?? 'מטופל/ת'}</p>
                     <p className="text-xs text-slate-600 truncate">
-                      {a.visitType} · {t.name} · {friendlyDate(a.start)} {hhmm(a.start)}
+                      {a.visitType} · {t?.name ?? ''} · {friendlyDate(a.start)} {hhmm(a.start)}
                       <span className="text-slate-400"> · {relativeFromNow(a.start)}</span>
                     </p>
                   </div>

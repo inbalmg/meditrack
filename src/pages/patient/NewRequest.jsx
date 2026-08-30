@@ -480,7 +480,10 @@ export default function NewRequest() {
         )}
 
         {/* ---- Footer navigation ---- */}
-        <div className="flex items-center gap-2 mt-5">
+        {/* במובייל הכפתורים נערמים לרוחב מלא (grid כדי שה-flex-1 שעל הכפתורים לא יכווץ
+            את גובהם) — כך תווית "אישור — יום ..." הארוכה נכנסת בשורה אחת ואינה נחתכת;
+            מ-md ואילך חוזרים לשורה אחת זה-לצד-זה. */}
+        <div className="grid grid-cols-1 gap-2 mt-5 md:flex md:flex-row md:items-center">
           {step > 1 && (
             <Button variant="soft" size="lg" className="flex-1" onClick={() => setStep(step - 1)}>
               <ChevronRight size={18} /> חזרה

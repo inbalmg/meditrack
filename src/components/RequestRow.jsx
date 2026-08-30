@@ -32,6 +32,9 @@ function InquiryRow({ request, canApprove = true, unread = false, onOpen }) {
   const { patientById, updateInquiry, convertInquiryToTask } = useData()
   const [expanded, setExpanded] = useState(false)
   const patient = patientById[request.patientId]
+  // A new patient's inquiry can stream into this queue over Realtime before their patient
+  // row is in the mirror — fall back so a missing lookup never white-screens the queue.
+  const patientName = patient?.name ?? 'מטופל/ת'
   const fromPortal = request.source === 'פורטל'
   const urgent = request.urgency === 'דחוף'
 
@@ -80,7 +83,7 @@ function InquiryRow({ request, canApprove = true, unread = false, onOpen }) {
               read = normal weight + soft grey, so handled rows visibly recede on the white table. */}
           <div className="min-w-0 flex flex-col items-start gap-0.5">
             <span className={clsx('truncate block max-w-full', unread ? 'font-semibold text-slate-900' : 'font-normal text-slate-600')}>
-              {patient.name}
+              {patientName}
             </span>
             <Badge tone={fromPortal ? 'teal' : 'blue'}>{fromPortal ? 'פנייה מהפורטל' : 'נפתחה במשרד'}</Badge>
           </div>
@@ -115,9 +118,9 @@ function InquiryRow({ request, canApprove = true, unread = false, onOpen }) {
         <div className="px-3 pb-4 pt-1 animate-fade">
           <div className="rounded-xl bg-slate-50 ring-1 ring-slate-100 p-4 space-y-3">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm">
-              <Detail icon={User} label="גיל">{patient.age}</Detail>
-              <Detail icon={Phone} label="טלפון">{patient.phone}</Detail>
-              {patient.email && <Detail icon={Mail} label="אימייל">{patient.email}</Detail>}
+              <Detail icon={User} label="גיל">{patient?.age ?? '—'}</Detail>
+              <Detail icon={Phone} label="טלפון">{patient?.phone ?? '—'}</Detail>
+              {patient?.email && <Detail icon={Mail} label="אימייל">{patient.email}</Detail>}
             </div>
 
             <div>

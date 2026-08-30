@@ -259,6 +259,11 @@ export default function Calendar() {
                     {placed.map(({ appt, lane, columns }) => {
                       const t = therapistById[appt.therapistId]
                       const p = patientById[appt.patientId]
+                      // A row can arrive over Realtime before its patient/therapist row is
+                      // in this client's mirror (e.g. a brand-new patient self-books) — fall
+                      // back to a neutral label so a missing lookup never white-screens the
+                      // calendar. The next hydrate fills in the real name.
+                      const patientName = p?.name ?? 'מטופל/ת'
                       const startMin = appt.start.getHours() * 60 + appt.start.getMinutes() - startHour * 60
                       const width = `calc(${100 / columns}% - 4px)`
                       const left = `calc(${(lane * 100) / columns}% + 2px)`
@@ -276,14 +281,14 @@ export default function Calendar() {
                             height: appt.durationMin * PX_PER_MIN - 2,
                             width,
                             right: left,
-                            backgroundColor: t.color,
+                            backgroundColor: t?.color,
                           }}
                           title={isUnresolvedPast(appt)
-                            ? `תור שעבר - לא עודכן הגיע/לא הגיע\n${p.name} · ${appt.visitType} · ${t.name}`
-                            : `${p.name} · ${appt.visitType} · ${t.name} · ${appt.status}`}
+                            ? `תור שעבר - לא עודכן הגיע/לא הגיע\n${patientName} · ${appt.visitType} · ${t?.name ?? ''}`
+                            : `${patientName} · ${appt.visitType} · ${t?.name ?? ''} · ${appt.status}`}
                         >
                           <p className="text-xs font-bold leading-tight truncate">
-                            <span className="font-medium text-white/70">{hhmm(appt.start)}</span> {p.name}
+                            <span className="font-medium text-white/70">{hhmm(appt.start)}</span> {patientName}
                           </p>
                           {appt.durationMin >= 20 && (
                             <p className="text-[11px] text-white/75 truncate leading-tight">
@@ -349,6 +354,9 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
   // Cancelling makes sense for a still-scheduled appointment (not one already
   // arrived / completed / no-show); gated to staff who can approve.
   const canCancel = role?.canApprove && appt.status === 'קבוע'
+  // patient/therapist can be momentarily missing from the mirror (a just-synced
+  // appointment whose patient row hasn't arrived yet) — degrade, never crash.
+  const patientName = patient?.name ?? 'מטופל/ת'
 
   return (
     <>
@@ -358,15 +366,15 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
       onClick={onClose}
     >
       <Card className="w-full max-w-md p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="h-1.5" style={{ backgroundColor: therapist.color }} />
+        <div className="h-1.5" style={{ backgroundColor: therapist?.color }} />
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Avatar initials={patient.name.slice(0, 2)} color={therapist.color} size={46} />
+              <Avatar initials={patientName.slice(0, 2)} color={therapist?.color} size={46} />
               <div>
-                <h3 className="font-bold text-slate-800 text-lg leading-tight">{patient.name}</h3>
+                <h3 className="font-bold text-slate-800 text-lg leading-tight">{patientName}</h3>
                 <p className="text-sm text-slate-400 flex items-center gap-1">
-                  <Phone size={12} /> {patient.phone} · {patient.age}
+                  <Phone size={12} /> {patient?.phone ?? '—'} · {patient?.age ?? '—'}
                 </p>
               </div>
             </div>
@@ -379,7 +387,7 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
             <Info label="מועד"><span className="flex items-center gap-1"><Clock size={13} /> {friendlyDate(appt.start)} · {hhmm(appt.start)}</span></Info>
             <Info label="משך">{appt.durationMin} דקות</Info>
             <Info label="סוג ביקור"><Badge tone="blue">{appt.visitType}</Badge></Info>
-            <Info label="מטפל">{therapist.name}</Info>
+            <Info label="מטפל">{therapist?.name ?? '—'}</Info>
           </div>
 
           {appt.reason && (
@@ -419,7 +427,7 @@ function AppointmentModal({ appt, patient, therapist, onClose }) {
     {confirmCancel && (
       <ConfirmDialog
         title="ביטול התור?"
-        message={`${patient.name} · ${appt.visitType} · ${friendlyDate(appt.start)} בשעה ${hhmm(appt.start)}. פעולה זו אינה ניתנת לביטול.`}
+        message={`${patientName} · ${appt.visitType} · ${friendlyDate(appt.start)} בשעה ${hhmm(appt.start)}. פעולה זו אינה ניתנת לביטול.`}
         confirmLabel="כן, בטל/י תור"
         cancelLabel="חזרה"
         onConfirm={() => { cancelAppointment(appt.id); onClose() }}

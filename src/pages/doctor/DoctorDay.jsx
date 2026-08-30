@@ -69,7 +69,7 @@ export default function DoctorDay() {
                       <p className="text-[10px] text-slate-400">{a.durationMin}′</p>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${done ? 'text-slate-500' : 'text-slate-800'}`}>{p.name}</p>
+                      <p className={`text-sm font-medium truncate ${done ? 'text-slate-500' : 'text-slate-800'}`}>{p?.name ?? 'מטופל/ת'}</p>
                       <p className="text-xs text-slate-400 truncate">{a.reason}</p>
                     </div>
                     <Badge tone={STATUS_TONE[a.status]}>{a.status}</Badge>
@@ -118,8 +118,8 @@ function NextCard({ appt, patient }) {
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
-          <p className="text-lg font-bold leading-tight">{patient.name}</p>
-          <p className="text-teal-50/90 text-sm">{patient.age} · {genderLabel(patient.gender)} · {patient.phone}</p>
+          <p className="text-lg font-bold leading-tight">{patient?.name ?? 'מטופל/ת'}</p>
+          {patient && <p className="text-teal-50/90 text-sm">{patient.age} · {genderLabel(patient.gender)} · {patient.phone}</p>}
         </div>
         <div className="text-left">
           <p className="text-2xl font-bold tabular-nums leading-none">{hhmm(appt.start)}</p>

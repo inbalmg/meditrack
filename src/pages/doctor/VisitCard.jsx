@@ -69,6 +69,19 @@ export default function VisitCard() {
   }
 
   const patient = patientById[appt.patientId]
+  // The patient row may not be in this client's mirror yet (a brand-new patient's
+  // appointment can arrive over Realtime before their record does). Show the same
+  // "not found" state rather than crashing; the next hydrate resolves it.
+  if (!patient) {
+    return (
+      <Card className="p-8">
+        <Empty icon={FileText} title="פרטי המטופל עדיין נטענים" />
+        <div className="text-center">
+          <Link to="/doctor" className="text-teal-600 hover:text-teal-700">חזרה להיום שלי</Link>
+        </div>
+      </Card>
+    )
+  }
   const meds = MEDS[patient.id] || []
   const now = new Date()
   const upcomingCount = visits.filter((v) => v.start > now).length

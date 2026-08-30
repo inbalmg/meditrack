@@ -262,6 +262,14 @@ export function DataProvider({ children }) {
       if (p.eventType === 'DELETE') { setBlocks(removeById(p.old.id)); return }
       setBlocks(upsertById(mapBlock(p.new)))
     }
+    // Patients must sync live too: when a brand-new patient self-registers on one device and
+    // books, their appointment streams to every open clinic client — but without the patient
+    // row those clients can't name it (and, before the guards at the render sites, crashed).
+    // Broadcasting the patient row closes that gap so the name shows without a manual refresh.
+    const applyPatient = (p) => {
+      if (p.eventType === 'DELETE') { setPatients(removeById(p.old.id)); return }
+      setPatients(upsertById(mapPatient(p.new)))
+    }
 
     // Carry the authenticated JWT onto the Realtime socket so RLS-scoped postgres_changes
     // authorize (supabase-js also re-syncs this on token refresh).
@@ -273,6 +281,7 @@ export function DataProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `clinic_id=eq.${clinicId}` }, applyAppointment)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `clinic_id=eq.${clinicId}` }, applyTask)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'slot_blocks', filter: `clinic_id=eq.${clinicId}` }, applyBlock)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients', filter: `clinic_id=eq.${clinicId}` }, applyPatient)
       .subscribe((s) => {
         // Fallback A — a dropped/re-established socket may have missed events; resync once.
         if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') wasDisconnected = true
