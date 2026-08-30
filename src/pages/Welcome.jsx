@@ -66,9 +66,12 @@ const CSS = `
   /* ביטול ההיסטים הדסקטופיים → ציר מרכזי משותף */
   .mtw-hero-title, .mtw-panel-inner{ transform:none !important; }
 
-  /* ההירו הופך לכותרת עליונה קומפקטית (לא נפרש על כל הגובה) */
+  /* ההירו הופך לכותרת עליונה קומפקטית (לא נפרש על כל הגובה) ותופס את מלוא הרוחב
+     כדי שתוכנו יתמרכז מול מרכז המסך (ולא יידחף ימינה כשהוא מתכווץ לרוחב-תוכן ב-RTL) */
   .mtw-hero{
     flex:0 0 auto !important;
+    width:100% !important;
+    min-width:0 !important;
     justify-content:flex-start !important;
     gap:1.6em;
     padding:2.2em 1.6em 0.6em !important;
