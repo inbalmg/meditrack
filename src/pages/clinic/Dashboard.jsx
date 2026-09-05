@@ -365,8 +365,14 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="overflow-x-auto scroll-thin no-gutter">
-              <div className="min-w-[520px]">
+            <div className="overflow-x-auto scroll-thin no-gutter scroll-smooth overscroll-x-contain">
+              {/* Shared min-width for header + rows. Below lg (mobile/tablet) it's wide
+                  enough that every column — including the subject (widest real value
+                  ≈ 154px) — shows in full without truncation; on a phone the container
+                  scrolls horizontally instead of clipping text. At lg+ the table sits in
+                  the 2-col grid, so it drops the floor (lg:min-w-0) and fills its card as
+                  before rather than adding a scrollbar. */}
+              <div className="min-w-[640px] lg:min-w-0">
                 {/* Column headers. The patient header mirrors the row's leading urgency-icon
                     slot + gap so "מטופל" lines up vertically with the names below. */}
                 <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 text-sm font-semibold text-slate-600">

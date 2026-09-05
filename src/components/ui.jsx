@@ -155,7 +155,9 @@ export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className={clsx('text-slate-500 truncate', compact ? 'text-sm' : 'text-xs')}>{label}</p>
+        {/* Label wraps rather than truncates so narrow (2-col mobile) tiles never clip
+            multi-word labels like "תורים שלא עודכנו". */}
+        <p className={clsx('text-slate-500 leading-tight', compact ? 'text-sm' : 'text-xs')}>{label}</p>
         {breakdown ? (
           // Direct status breakdown: each count sits next to its own status label
           // (e.g. "4 נותרו · 5 הסתיימו · 2 לעדכון") — no single central number, no "total".
@@ -177,7 +179,7 @@ export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone
             })}
           </div>
         ) : (
-          <div className="flex items-baseline gap-2 min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0">
             <span className="font-bold text-slate-800 tabular-nums shrink-0 text-2xl">{value}</span>
             {delta && (
               <span className={clsx('text-xs font-medium shrink-0', deltaTone === 'green' ? 'text-emerald-600' : 'text-red-500')}>
@@ -185,7 +187,9 @@ export function Kpi({ label, value, delta, deltaTone = 'green', icon: Icon, tone
               </span>
             )}
             {sub && (
-              <span className="text-xs text-slate-500 truncate" title={typeof sub === 'string' ? sub : undefined}>
+              // No truncate: on a narrow tile the sub wraps to its own line under the
+              // value instead of being clipped (e.g. "5 מהיום · 5 קודמים").
+              <span className="text-xs text-slate-500 min-w-0" title={typeof sub === 'string' ? sub : undefined}>
                 {sub}
               </span>
             )}

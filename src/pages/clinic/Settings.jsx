@@ -442,11 +442,13 @@ function ToggleRow({ label, hint, checked, onChange, badge, disabled }) {
   )
 }
 
-// Fixed width of the time-field cell (input + suffix). Because every row uses the
-// SAME width and the input is packed to its right (RTL start), all three inputs
-// land on one vertical axis regardless of how long the suffix text is. Sized to
-// fit the widest suffix + the input (w-20) + the gap.
-const TIME_FIELD_W = 'w-64'
+// Fixed width of the time-field cell (input + suffix), applied from sm+ only.
+// Because every row uses the SAME width and the input is packed to its right (RTL
+// start), all inputs land on one vertical axis regardless of how long the suffix
+// text is. Sized to fit the widest suffix + the input (w-20) + the gap. On mobile
+// the field cell flows freely (no fixed width) so the row can stack instead of
+// overflowing and crushing the label.
+const TIME_FIELD_W = 'sm:w-64'
 
 // Toggle + its derived time input on one continuous row. The hours/minutes field
 // is a text input with REAL validation (validateBoundedInt: whole number, digits
@@ -468,16 +470,16 @@ function AutomationTimeRow({ label, hint, badge, checked, onToggle, value, min, 
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-medium text-slate-700">{label}</p>
             {badge}
           </div>
           {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <div className={clsx('flex items-center gap-2 shrink-0', TIME_FIELD_W, disabled && 'opacity-50')}>
+        <div className="flex items-center justify-between gap-3 sm:justify-start sm:shrink-0">
+          <div className={clsx('flex items-center gap-2 min-w-0 sm:shrink-0', TIME_FIELD_W, disabled && 'opacity-50')}>
             <input
               type="text"
               inputMode="numeric"
@@ -488,7 +490,7 @@ function AutomationTimeRow({ label, hint, badge, checked, onToggle, value, min, 
               aria-label={label}
               onChange={(e) => handleChange(e.target.value)}
               className={clsx(
-                'h-9 w-20 rounded-lg ring-1 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 disabled:bg-slate-50 disabled:cursor-not-allowed',
+                'h-9 w-20 shrink-0 rounded-lg ring-1 px-3 text-sm text-center tabular-nums outline-none focus:ring-2 disabled:bg-slate-50 disabled:cursor-not-allowed',
                 !disabled && error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-teal-500',
               )}
             />

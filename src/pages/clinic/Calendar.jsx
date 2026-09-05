@@ -159,20 +159,23 @@ export default function Calendar() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           {role.canApprove && (
             <button
               onClick={() => setBlockOpen(true)}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium text-amber-700 ring-1 ring-amber-200 bg-white hover:bg-amber-50 transition"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium text-amber-700 ring-1 ring-amber-200 bg-white hover:bg-amber-50 transition shrink-0"
             >
               <Ban size={15} /> חסימת זמן
             </button>
           )}
-          <div className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 px-2 py-1">
+          {/* On mobile the filter box takes a full row and its two selects share the
+              width (flex-1 min-w-0) so long option labels can't overflow the page and
+              push the RTL start off-screen. From sm+ it sizes to content as before. */}
+          <div className="flex items-center gap-2 rounded-xl ring-1 ring-slate-200 bg-slate-50 px-2 py-1 flex-1 min-w-0 sm:flex-none">
             <Filter size={15} className="text-slate-400 shrink-0" />
-            <Select value={therapistFilter} onChange={setTherapistFilter} ariaLabel="סינון לפי מטפל"
+            <Select value={therapistFilter} onChange={setTherapistFilter} ariaLabel="סינון לפי מטפל" className="flex-1 sm:flex-none"
               options={[{ value: 'all', label: 'כל המטפלים' }, ...activeTherapists.map((t) => ({ value: t.id, label: t.name }))]} />
-            <Select value={typeFilter} onChange={setTypeFilter} ariaLabel="סינון לפי סוג ביקור"
+            <Select value={typeFilter} onChange={setTypeFilter} ariaLabel="סינון לפי סוג ביקור" className="flex-1 sm:flex-none"
               options={[{ value: 'all', label: 'כל סוגי הביקור' }, ...VISIT_TYPES.map((v) => ({ value: v, label: v }))]} />
           </div>
         </div>
@@ -447,13 +450,18 @@ function Info({ label, children }) {
   )
 }
 
-function Select({ value, onChange, options, ariaLabel }) {
+function Select({ value, onChange, options, ariaLabel, className }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label={ariaLabel}
-      className="h-8 rounded-lg ring-1 ring-slate-200 bg-white px-2.5 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer transition"
+      className={clsx(
+        // min-w-0 lets the select shrink below its widest option (which can be long,
+        // e.g. "רפלקסולוגיה ועיסוי רפואי") instead of forcing horizontal page overflow.
+        'h-8 min-w-0 rounded-lg ring-1 ring-slate-200 bg-white px-2.5 text-sm text-slate-700 hover:ring-teal-400 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer transition',
+        className,
+      )}
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>

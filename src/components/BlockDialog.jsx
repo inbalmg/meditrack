@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { addDays } from 'date-fns'
-import { X, Ban, Clock, Check, Building2, CheckCircle2, Info, Trash2 } from 'lucide-react'
+import { X, Ban, Clock, Check, Building2, CheckCircle2, Info, Trash2, AlertTriangle } from 'lucide-react'
 import { useData } from '../data/store.jsx'
 import { Card, Button } from './ui.jsx'
 import { clsx } from './clsx.js'
@@ -27,7 +27,7 @@ const fmtHour = (h) => `${pad(h)}:00`
 // Edit mode: pass an existing `editBlock` to prefill every field and save via updateBlock;
 // `onRemove` (called from the "הסר חסימה" button) lets the caller run its own delete-confirm.
 export default function BlockDialog({ onClose, lockedTherapistId = null, defaultStart = null, editBlock = null, onRemove = null }) {
-  const { activeTherapists, therapistById, addBlock, updateBlock, settings } = useData()
+  const { activeTherapists, therapistById, patientById, appointments, addBlock, updateBlock, settings } = useData()
   const startHour = settings.workStartHour
   const endHour = settings.workEndHour
   const workDays = settings.workDays
@@ -88,17 +88,51 @@ export default function BlockDialog({ onClose, lockedTherapistId = null, default
   })()
   const canConfirm = !error
 
-  function confirm() {
-    if (!canConfirm) return
-    let start = clinicInputToDate(startInput)
-    let dur = durationMin
+  // The block's effective [start, duration] from the current inputs. "כל היום" pins the
+  // start to the opening hour and spans the whole working window. Shared by confirm() and
+  // the conflict check so both read exactly the same range.
+  function effectiveStartDur() {
+    if (!startInput) return null
     if (allDay) {
-      // Whole working day: pin start to the clinic opening hour on the chosen date.
       const d = clinicInputToDate(`${startInput.slice(0, 10)}T00:00`)
       d.setHours(startHour, 0, 0, 0)
-      start = d
-      dur = Math.max(30, (endHour - startHour) * 60)
+      return { start: d, dur: Math.max(30, (endHour - startHour) * 60) }
     }
+    return { start: clinicInputToDate(startInput), dur: durationMin }
+  }
+
+  // A block never cancels existing appointments and is drawn BEHIND them on the calendar —
+  // so a block placed over an already-booked slot would be invisible and silently redundant
+  // (the slot is already unavailable for new bookings). Surface any appointments the block
+  // would overlap so the secretary sees them before confirming. Scope matters: a clinic-wide
+  // block conflicts with every provider; a therapist block only with that therapist's visits.
+  // No-shows free their slot, so they don't count.
+  const targetTherapistId = lockedTherapistId ?? scope
+  const conflicts = useMemo(() => {
+    if (error) return []
+    const eff = effectiveStartDur()
+    if (!eff) return []
+    const s = eff.start.getTime()
+    const e = s + eff.dur * 60000
+    return appointments
+      .filter((a) => {
+        if (targetTherapistId && a.therapistId !== targetTherapistId) return false
+        if (a.status === 'לא הגיע') return false
+        // Ignore the appointment(s)? No — even completed ones in-range are worth flagging,
+        // but blocks can't be set in the past, so in practice these are upcoming visits.
+        const as = a.start.getTime()
+        const ae = as + (a.durationMin ?? 0) * 60000
+        return s < ae && e > as
+      })
+      .sort((a, b) => a.start - b.start)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointments, startInput, durationMin, allDay, targetTherapistId, error])
+
+  function confirm() {
+    if (!canConfirm) return
+    const eff = effectiveStartDur()
+    let start = eff.start
+    let dur = eff.dur
     const therapistId = lockedTherapistId ?? scope
     if (isEdit) {
       updateBlock(editBlock.id, { therapistId, start, durationMin: dur, reason })
@@ -223,6 +257,37 @@ export default function BlockDialog({ onClose, lockedTherapistId = null, default
                   className="w-full h-10 rounded-xl ring-1 ring-slate-300 px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </Field>
+
+              {/* Conflict notice — the block overlaps existing appointments. It doesn't
+                  cancel them (they stay booked and keep showing on the calendar, drawn over
+                  the block); the block only stops NEW bookings on that time. Non-blocking:
+                  blocking time you plan to clear out is a legitimate action. */}
+              {conflicts.length > 0 && (
+                <div className="rounded-xl bg-amber-50 ring-1 ring-amber-200 p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+                    <AlertTriangle size={15} className="shrink-0" />
+                    {conflicts.length === 1 ? 'קיים תור בטווח החסימה' : `קיימים ${conflicts.length} תורים בטווח החסימה`}
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    החסימה לא תבטל אותם — היא רק תמנע קביעת תורים <span className="font-medium">חדשים</span> בזמן זה.
+                    התורים הקיימים ימשיכו להופיע ביומן. אם ברצונכם לפנות את הזמן, בטלו אותם קודם.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {conflicts.slice(0, 4).map((a) => (
+                      <li key={a.id} className="flex items-center gap-1.5 text-xs text-amber-900">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: therapistById[a.therapistId]?.color }} />
+                        <span className="tabular-nums font-medium">{hhmm(a.start)}</span>
+                        <span className="truncate">
+                          {patientById[a.patientId]?.name ?? 'מטופל/ת'} · {therapistById[a.therapistId]?.name ?? ''}
+                        </span>
+                      </li>
+                    ))}
+                    {conflicts.length > 4 && (
+                      <li className="text-xs text-amber-700">ועוד {conflicts.length - 4}…</li>
+                    )}
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-2">
