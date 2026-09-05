@@ -43,6 +43,10 @@ function AppRoutes() {
   const { role } = useSession()
   return (
     <Routes>
+      {/* Root: send to the role's home when signed in, otherwise to login. This is a
+          real destination, not a 404 — kept separate from the "*" catch-all below. */}
+      <Route path="/" element={<Navigate to={role ? role.home : '/login'} replace />} />
+
       <Route path="/login" element={role ? <Navigate to={role.home} replace /> : <Login />} />
 
       <Route
