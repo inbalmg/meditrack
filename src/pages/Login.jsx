@@ -34,7 +34,7 @@ export default function Login() {
 
   const hint = (
     <p style={{ margin: 0, fontSize: '1.05em', color: 'rgba(200,218,224,0.6)', textAlign: 'right' }}>
-      {busy ? 'מתחבר…' : 'חשבונות הדגמה · סיסמה: Meditrack1!'}
+      {busy ? 'מתחבר…' : 'חשבונות הדגמה · לחצו על כרטיס לכניסה'}
     </p>
   )
   const errorBanner = error && (

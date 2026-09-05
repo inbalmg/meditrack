@@ -18,6 +18,7 @@ import VisitCard from './pages/doctor/VisitCard.jsx'
 
 import NewRequest from './pages/patient/NewRequest.jsx'
 import MyAppointments from './pages/patient/MyAppointments.jsx'
+import Fallback from './pages/Fallback.jsx'
 
 function RequireRole({ area, children }) {
   const { role } = useSession()
@@ -26,8 +27,16 @@ function RequireRole({ area, children }) {
   if (area === 'clinic' && (role.id === 'secretary' || role.id === 'manager')) return children
   if (area === 'doctor' && role.id === 'therapist') return children
   if (area === 'patient' && role.id === 'patient') return children
-  // Signed in but wrong area → send home.
-  return <Navigate to={role.home} replace />
+  // Signed in but wrong area → friendly "no permission" screen (not a silent redirect).
+  return <Fallback kind="forbidden" />
+}
+
+// Route-level gate for capabilities that only some clinic roles hold (e.g. reports =
+// manager only). RequireRole guards the AREA; this guards a specific sub-route so it
+// can't be reached by typing the URL. Renders the friendly forbidden screen otherwise.
+function RequireReports({ children }) {
+  const { role } = useSession()
+  return role?.canReports ? children : <Fallback kind="forbidden" />
 }
 
 function AppRoutes() {
@@ -47,7 +56,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="tasks" element={<TasksBoard />} />
-        <Route path="reports" element={<Reports />} />
+        <Route path="reports" element={<RequireReports><Reports /></RequireReports>} />
         <Route path="settings" element={<Settings />} />
       </Route>
 
@@ -77,7 +86,7 @@ function AppRoutes() {
         <Route path="new" element={<NewRequest />} />
       </Route>
 
-      <Route path="*" element={<Navigate to={role ? role.home : '/login'} replace />} />
+      <Route path="*" element={<Fallback kind="notfound" />} />
     </Routes>
   )
 }

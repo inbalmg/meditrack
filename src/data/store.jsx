@@ -452,6 +452,18 @@ export function DataProvider({ children }) {
   }
 
   // --- Patients ---
+  // שליחת "ליד" ל-Make (שלב 3 — פרויקט מתגלגל). לא חוסם את ההרשמה: fire-and-forget,
+  // שקט בכשל, ו-no-op כשה-Webhook לא מוגדר. הטלפון נשלח בפורמט מקומי (05XXXXXXXX) —
+  // הנרמול ל-972 מתבצע בתרחיש ה-Make.
+  function sendLeadToMake({ name, phone, email }) {
+    const url = import.meta.env.VITE_MAKE_WEBHOOK_URL
+    if (!url) return
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, email: email || '', source: 'onboarding' }),
+    }).catch(() => {})
+  }
   function addPatient({ name, phone, birthYear = null, gender = null, email = null, notifyOptIn = true }) {
     // Required fields (mirrors the DB: phone/birth_year/gender are NOT NULL, gender is
     // CHECK-constrained). Backstop under the intake forms — reject invalid input.
@@ -479,6 +491,8 @@ export function DataProvider({ children }) {
     )
     persist(write, 'addPatient')
     if (selfRegister) pendingPatientWrite.current = write.catch(() => {})
+    // ליד ל-Make רק בהרשמה עצמית של מטופל (לא ברישום ספר-משרד ע"י מזכירה).
+    if (selfRegister) sendLeadToMake({ name: cleanName, phone: cleanPhone, email: cleanEmail })
     return patient
   }
   function updatePatient(id, patch) {
