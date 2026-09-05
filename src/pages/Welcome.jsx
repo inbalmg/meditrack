@@ -110,6 +110,18 @@ const CSS = `
   .mtw-trust-mobile > div:last-child{ justify-content:flex-start !important; } /* הצמדת הקבוצה לימין (RTL) */
   .mtw-trust-mobile br{ display:none !important; }                              /* טקסט בשורה אחת */
   .mtw-trust-mobile p{ font-size:1.05em !important; white-space:nowrap !important; }
+
+  /* קרדיט הפרויקט — בדסקטופ הוא absolute בפינה, מה שגורם לחפיפה עם מודול האבטחה
+     במובייל (ששניהם בתחתית). כאן מחזירים אותו לזרימה הרגילה מתחת לכל התוכן וממרכזים,
+     כך שלעולם לא יתנגש עם "המערכת מאובטחת …". */
+  .mtw-credit{
+    position:static !important;
+    order:99 !important;              /* אחרון בזרימת ה-flex (הוא ראשון ב-DOM) */
+    width:100% !important;
+    text-align:center !important;
+    margin:2.4em 0 1.4em !important;
+    padding:0 1.6em !important;
+  }
 }
 `
 
@@ -532,6 +544,7 @@ export default function Welcome({ heading, onBack, children }) {
       {/* קרדיט הפרויקט — פינה שמאלית-תחתונה */}
       <p
         dir="rtl"
+        className="mtw-credit"
         style={{
           position: 'absolute',
           bottom: '2.4em',

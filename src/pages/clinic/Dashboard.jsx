@@ -32,8 +32,12 @@ import { isPastUnmarked, selectUnresolved } from '../../lib/appointments.js'
 import { isTaskOverdue } from '../../lib/tasks.js'
 import { clsx } from '../../components/clsx.js'
 
-// Demo greeting name — in production this comes from the authenticated user.
-const DEMO_STAFF_NAME = 'רונית'
+// Fallback greeting name when the authenticated user has no full_name on file.
+const FALLBACK_STAFF_NAME = 'צוות'
+// First name only — the greeting reads "בוקר טוב, {שם}" (e.g. "אורית שקד" → "אורית").
+function firstName(fullName) {
+  return fullName?.trim().split(/\s+/)[0] || FALLBACK_STAFF_NAME
+}
 // One-line onboarding explanation of why this queue is short (exceptions only).
 // Lives in the header info tooltip + the empty state instead of a fixed paragraph.
 const QUEUE_HINT =
@@ -73,7 +77,7 @@ function buildSummary({ appts, pending, urgent }) {
 
 export default function Dashboard() {
   const { requests, appointments, tasks, patientById, therapistById, settings } = useData()
-  const { role } = useSession()
+  const { role, fullName } = useSession()
   const navigate = useNavigate()
   // Desk launcher modals (moved here from the global header, into the metrics row).
   const [quickOpen, setQuickOpen] = useState(false)
@@ -246,7 +250,7 @@ export default function Dashboard() {
       {/* Greeting + triage summary (התאריך עלה לכותרת העליונה, בגובה הלוגו) */}
       <div className="min-w-0">
         <h1 className="text-2xl font-bold text-slate-800">
-          {greetingFor(now)}, {DEMO_STAFF_NAME}
+          {greetingFor(now)}, {firstName(fullName)}
         </h1>
         <p className="text-sm text-slate-600 mt-1">
           {buildSummary({ appts: todayAppts.length, pending: pending.length, urgent: overdueCount })}

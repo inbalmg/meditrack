@@ -95,7 +95,7 @@ export function SessionProvider({ children }) {
 
   return (
     <SessionContext.Provider
-      value={{ session, role, status, userId: claims.userId, clinicId: claims.clinicId, login: undefined, logout }}
+      value={{ session, role, status, userId: claims.userId, clinicId: claims.clinicId, fullName: claims.fullName, login: undefined, logout }}
     >
       {children}
     </SessionContext.Provider>

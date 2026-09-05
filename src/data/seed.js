@@ -78,7 +78,7 @@ export const currentPatientId = 'p1'
 
 // Staff accounts (managed from the Settings screen). roleId matches ROLES keys.
 export const seedStaff = [
-  { id: 'u1', name: 'אורית שקד', roleId: 'manager' },
+  { id: 'u1', name: 'נעמה שקד', roleId: 'manager' },
   { id: 'u2', name: 'רונית לוי', roleId: 'secretary' },
   { id: 'u3', name: 'רועי שקד', roleId: 'therapist' },
   { id: 'u4', name: 'מיכל לוי', roleId: 'therapist' },

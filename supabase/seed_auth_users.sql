@@ -25,7 +25,7 @@ values
    'manager@meditrack.test',
    extensions.crypt('Meditrack1!', extensions.gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"],"clinic_id":"3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0","role":"manager"}',
-   '{"full_name":"אורית שקד"}', now(), now(), '', '', '', '', '', '', '', ''),
+   '{"full_name":"נעמה שקד"}', now(), now(), '', '', '', '', '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000',
    '40000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated',
    'secretary@meditrack.test',
