@@ -555,7 +555,7 @@ function Onboarding({
       </Card>
 
       <Button size="lg" className="w-full" disabled={!canSubmit} onClick={onSubmit}>
-        המשך לקביעת תור <ArrowRight size={18} />
+        המשך לקביעת תור <span dir="ltr" style={{ display: 'inline-block' }}>&lt;</span>
       </Button>
     </div>
   )

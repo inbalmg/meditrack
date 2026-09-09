@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { addDays, isSameDay, subMonths } from 'date-fns'
 import { CalendarDays, Filter, X, Clock, Phone, ChevronRight, ChevronLeft, Ban } from 'lucide-react'
@@ -9,7 +9,7 @@ import AppointmentActions from '../../components/AppointmentActions.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
 import BlockDialog from '../../components/BlockDialog.jsx'
 import {
-  hhmm, dayName, shortDate, friendlyDate,
+  hhmm, dayName, shortDate, friendlyDate, weekRangeLabel, weekRangeShort,
   weekStartOf, maxBookingWeekStart, BOOKING_HORIZON_MONTHS,
 } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
@@ -78,6 +78,7 @@ export default function Calendar() {
   const [blockOpen, setBlockOpen] = useState(false)
   const [blockToEdit, setBlockToEdit] = useState(null)
   const [blockToRemove, setBlockToRemove] = useState(null)
+  const dateInputRef = useRef(null)
 
   const selected = selectedId ? appointments.find((a) => a.id === selectedId) : null
 
@@ -94,6 +95,19 @@ export default function Calendar() {
     const next = addDays(weekStart, dir * 7)
     if (next < minWeekStart || next > maxWeekStart) return
     setWeekStart(next)
+    setSelectedId(null)
+  }
+
+  // בורר תאריך: קפיצה ישירה לשבוע שמכיל את התאריך שנבחר (מוצמד לגבולות הניווט).
+  // הפורמט/הפרסינג נעשים בשעון הדפדפן המקומי — עקבי עם weekStartOf(new Date()) שמעליו.
+  const pad2 = (n) => String(n).padStart(2, '0')
+  const toDateInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  function jumpToDate(value) {
+    if (!value) return
+    const [y, m, dd] = value.split('-').map(Number)
+    const ws = weekStartOf(new Date(y, m - 1, dd))
+    const clamped = ws < minWeekStart ? minWeekStart : ws > maxWeekStart ? maxWeekStart : ws
+    setWeekStart(clamped)
     setSelectedId(null)
   }
 
@@ -129,21 +143,23 @@ export default function Calendar() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">יומן הקליניקה</h1>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-            <p className="text-slate-500">תצוגה שבועית · {shortDate(days[0])}–{shortDate(days[days.length - 1])}</p>
-            <div className="flex items-center gap-0.5 rounded-xl ring-1 ring-slate-200 bg-white p-0.5">
+          <p className="text-slate-500 mt-0.5">תצוגה שבועית</p>
+          {/* סרגל ניווט: שני רכיבים נפרדים, גובה אחיד (h-9), ריווח אוורירי (gap-3) */}
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            {/* (1) ניווט שבועי: ‹ · השבוע · › */}
+            <div className="flex items-center h-9 rounded-xl ring-1 ring-slate-200 bg-white px-1 shrink-0">
               <button
                 onClick={() => shiftWeek(-1)}
                 disabled={!canPrev}
                 title="שבוע קודם"
-                className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
               >
                 <ChevronRight size={16} />
               </button>
               <button
                 onClick={() => setWeekStart(thisWeekStart)}
                 disabled={atThisWeek}
-                className={clsx('px-2 h-8 rounded-lg text-sm font-semibold transition',
+                className={clsx('px-2.5 h-7 rounded-lg text-sm font-semibold transition',
                   atThisWeek ? 'text-slate-400' : 'text-teal-700 hover:bg-teal-50')}
               >
                 השבוע
@@ -152,10 +168,33 @@ export default function Calendar() {
                 onClick={() => shiftWeek(1)}
                 disabled={!canNext}
                 title="שבוע הבא"
-                className="grid place-items-center h-8 w-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
+                className="grid place-items-center h-7 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent transition"
               >
                 <ChevronLeft size={16} />
               </button>
+            </div>
+
+            {/* (2) כפתור תאריכון: מציג את טווח השבוע הנבחר ופותח Date Picker בלחיצה.
+                שדה ה-date שקוף מונח מעל הכפתור המעוצב — לחיצה עליו פותחת את הבורר הנייטיב,
+                ובחירת יום כלשהו מציגה את השבוע המלא (א׳–ה׳) שמכיל אותו. */}
+            <div className="relative inline-flex group shrink-0">
+              <div className="inline-flex items-center gap-2 h-9 px-3 rounded-xl text-sm font-medium text-slate-700 ring-1 ring-slate-200 bg-white pointer-events-none group-hover:ring-teal-400 group-hover:bg-slate-50 transition">
+                {/* מובייל צפוף → מספרים קומפקטיים; sm+ → מלל (מקוצר בחוצה-חודשים) */}
+                <span className="tabular-nums whitespace-nowrap sm:hidden">{weekRangeShort(days[0], days[days.length - 1])}</span>
+                <span className="tabular-nums whitespace-nowrap hidden sm:inline">{weekRangeLabel(days[0], days[days.length - 1])}</span>
+                <CalendarDays size={15} className="text-slate-400" />
+              </div>
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={toDateInput(weekStart)}
+                min={toDateInput(minWeekStart)}
+                max={toDateInput(maxWeekStart)}
+                onChange={(e) => jumpToDate(e.target.value)}
+                onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* נופל חזרה להתנהגות הקליק הנייטיב */ } }}
+                aria-label="בחירת שבוע לפי תאריך"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
             </div>
           </div>
         </div>

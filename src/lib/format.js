@@ -80,6 +80,34 @@ export function shortDate(d) {
   return `${String(p.day).padStart(2, '0')}/${String(p.month).padStart(2, '0')}`
 }
 
+const HE_MONTHS_LONG = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
+// שמות מקוצרים (עם גרש) לשבוע שחוצה חודשים — חוסך רוחב ומהדק את התווית.
+const HE_MONTHS_SHORT = ["ינו'", "פבר'", 'מרץ', "אפר'", 'מאי', 'יוני', 'יולי', "אוג'", "ספט'", "אוק'", "נוב'", "דצמ'"]
+
+// תווית טווח שבוע בעברית (לכפתור התאריכון ביומן), בשעון הקליניקה. דוגמאות:
+//   אותו חודש:     "17–21 ינואר 2027"  (שם חודש מלא)
+//   חוצה חודשים:   "30 אוג' – 3 ספט' 2026"  (שם מקוצר, מונע חריגת רוחב)
+//   חוצה שנים:     "29 דצמ' 2026 – 2 ינו' 2027"
+export function weekRangeLabel(start, end) {
+  const a = clinicParts(start)
+  const b = clinicParts(end)
+  if (a.year === b.year && a.month === b.month)
+    return `${a.day}–${b.day} ${HE_MONTHS_LONG[a.month - 1]} ${a.year}`
+  const ma = HE_MONTHS_SHORT[a.month - 1]
+  const mb = HE_MONTHS_SHORT[b.month - 1]
+  if (a.year !== b.year) return `${a.day} ${ma} ${a.year} – ${b.day} ${mb} ${b.year}`
+  return `${a.day} ${ma} – ${b.day} ${mb} ${a.year}`
+}
+
+// פורמט מספרי קומפקטי לטווח השבוע (למסכי מובייל צפופים): "30.08 – 03.09".
+export function weekRangeShort(start, end) {
+  const fmt = (d) => {
+    const p = clinicParts(d)
+    return `${String(p.day).padStart(2, '0')}.${String(p.month).padStart(2, '0')}`
+  }
+  return `${fmt(start)} – ${fmt(end)}`
+}
+
 export function friendlyDate(d) {
   const now = new Date()
   const target = clinicYMD(d)
