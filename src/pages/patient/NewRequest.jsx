@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, HelpCircle, ArrowRight, Phone, User, Bell, CalendarClock, Mail, ShieldCheck, HeartHandshake, X, Send, CheckCircle2,
+  Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, HelpCircle, ArrowRight, ArrowLeft, Phone, User, Bell, CalendarClock, Mail, ShieldCheck, HeartHandshake, X, Send, CheckCircle2,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
@@ -332,8 +332,8 @@ export default function NewRequest() {
                 <p className="text-sm font-medium text-slate-800">צריכים עזרה או מידע נוסף?</p>
                 <p className="text-xs text-slate-500">שלחו פנייה קצרה והצוות שלנו יחזור אליכם בהקדם</p>
               </div>
-              <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:translate-x-0.5">
-                <ArrowRight size={16} />
+              <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:-translate-x-0.5">
+                <ArrowLeft size={16} />
               </span>
             </button>
 
@@ -594,6 +594,7 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
             onChange={(e) => setName(e.target.value)}
             required
             aria-required="true"
+            maxLength={80}
             placeholder="שם פרטי ומשפחה"
             className="w-full rounded-xl ring-1 ring-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
           />
@@ -656,6 +657,7 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
           aria-required="true"
           aria-invalid={phoneInvalid}
           inputMode="tel"
+          maxLength={20}
           placeholder="050-0000000"
           className={clsx(
             'w-full rounded-xl ring-1 px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2',
@@ -683,6 +685,7 @@ function ContactFields({ isNew, name, setName, phone, setPhone, birthYear, setBi
           inputMode="email"
           type="email"
           dir="ltr"
+          maxLength={254}
           placeholder="name@example.com"
           className={clsx(
             'w-full rounded-xl ring-1 px-3 py-2.5 text-sm text-right outline-none focus:ring-2',
@@ -761,6 +764,7 @@ function InquiryDialog({ subjects, onClose, onSubmit }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
+              maxLength={500}
               className="w-full rounded-xl ring-1 ring-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none leading-relaxed"
             />
           </div>
