@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarHeart, Bell, FilePlus2, Clock, Check, X, Hourglass, MapPin, Users } from 'lucide-react'
+import { CalendarHeart, CalendarCheck, CalendarClock, Bell, FilePlus2, Clock, Check, X, Hourglass, MapPin, Users } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Badge, Button, Empty } from '../../components/ui.jsx'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
-import { hhmm, friendlyDate, relativeFromNow } from '../../lib/format.js'
+import { hhmm, friendlyDate, relativeFromNow, dayName, shortDate } from '../../lib/format.js'
 import { clsx } from '../../components/clsx.js'
 
 const REQ_STATUS = {
@@ -47,6 +47,8 @@ export default function MyAppointments() {
 
   // Appointment pending cancel confirmation (null = no dialog open).
   const [confirmCancel, setConfirmCancel] = useState(null)
+  // Snapshot of the appointment just cancelled → shows the cancel-success screen.
+  const [cancelled, setCancelled] = useState(null)
   // Locally-dismissed request banners (rejected requests the patient closed).
   const [dismissed, setDismissed] = useState(loadDismissed)
   function dismissRequest(id) {
@@ -89,6 +91,36 @@ export default function MyAppointments() {
         .sort((a, b) => a.start - b.start),
     [appointments, currentPatientId],
   )
+
+  // ---------- Cancelled confirmation (same format as NewRequest's "התור נקבע!") ----------
+  if (cancelled) {
+    const t = therapistById[cancelled.therapistId]
+    return (
+      <div className="animate-fade space-y-4 max-w-xl mx-auto">
+        <Card className="p-6 text-center">
+          <span className="grid place-items-center h-16 w-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-4"><Check size={32} /></span>
+          <h2 className="text-xl font-bold text-slate-800">התור בוטל בהצלחה</h2>
+          <p className="text-slate-500 mt-1 text-sm">המשבצת שוחררה ביומן המרפאה. ניתן לקבוע תור חדש בכל עת.</p>
+        </Card>
+        <Card className="p-5">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2.5 text-sm">
+            <Row label="טיפול">{cancelled.visitType}</Row>
+            {t && <Row label="מטפל/ת">{t.name} · {t.specialty}</Row>}
+            <Row label="מועד">יום {dayName(cancelled.start)} {shortDate(cancelled.start)} · {hhmm(cancelled.start)}</Row>
+            {cancelled.durationMin && <Row label="משך">{cancelled.durationMin} דק׳</Row>}
+          </dl>
+        </Card>
+        <div className="flex flex-col gap-2">
+          <Button size="lg" className="w-full" onClick={() => setCancelled(null)}>
+            <CalendarCheck size={18} /> לתורים שלי
+          </Button>
+          <Link to="/patient/new" className="block">
+            <Button variant="soft" size="lg" className="w-full"><CalendarClock size={18} /> קביעת תור חדש</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="animate-fade space-y-5">
@@ -216,11 +248,21 @@ export default function MyAppointments() {
           message={`${confirmCancel.visitType} · ${friendlyDate(confirmCancel.start)} בשעה ${hhmm(confirmCancel.start)}. פעולה זו אינה ניתנת לביטול.`}
           confirmLabel="כן, בטל/י תור"
           cancelLabel="חזרה"
-          onConfirm={() => { cancelAppointment(confirmCancel.id); setConfirmCancel(null) }}
+          onConfirm={() => { cancelAppointment(confirmCancel.id); setCancelled(confirmCancel); setConfirmCancel(null) }}
           onClose={() => setConfirmCancel(null)}
         />
       )}
     </div>
+  )
+}
+
+// One row of the two-column summary grid (same as NewRequest's booking summary).
+function Row({ label, children }) {
+  return (
+    <>
+      <dt className="text-slate-500 whitespace-nowrap">{label}:</dt>
+      <dd className="font-medium text-slate-700">{children}</dd>
+    </>
   )
 }
 

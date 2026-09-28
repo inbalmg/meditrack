@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { addDays, isSameDay, set } from 'date-fns'
 import {
-  Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, HelpCircle, ArrowRight, ArrowLeft, Phone, User, Bell, CalendarClock, Mail, ShieldCheck, HeartHandshake, X, Send, CheckCircle2,
+  Check, Clock, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, HelpCircle, ArrowRight, ArrowLeft, Phone, User, Bell, CalendarClock, Mail, ShieldCheck, HeartHandshake, X, Send, CheckCircle2, Bot,
 } from 'lucide-react'
 import { useData } from '../../data/store.jsx'
 import { Card, Button, Badge, RequiredMark } from '../../components/ui.jsx'
+import BotChatDialog from '../../components/BotChatDialog.jsx'
 import { clsx } from '../../components/clsx.js'
 import {
   dayName, shortDate, hhmm,
@@ -127,6 +128,11 @@ export default function NewRequest() {
   // question to the secretary (no AI). `inquirySent` shows a dedicated confirmation screen afterward.
   const [inquiryOpen, setInquiryOpen] = useState(false)
   const [inquirySent, setInquirySent] = useState(false)
+  // "שיחה עם הבוט" — DEV-ONLY demo of the n8n Front-Desk agent (Stage 4). Gated by
+  // BOTH import.meta.env.DEV (stripped from production builds) AND the presence of
+  // VITE_N8N_CHAT_URL, so it never ships to production and no-ops when unconfigured.
+  const [chatOpen, setChatOpen] = useState(false)
+  const chatEnabled = import.meta.env.DEV && !!import.meta.env.VITE_N8N_CHAT_URL
   const [therapistId, setTherapistId] = useState(rescheduling?.therapistId ?? '')
   const [treatmentId, setTreatmentId] = useState(rescheduling?.treatmentId ?? '')
   // ניווט שבועי: מהיום ועד 6 חודשים קדימה (א׳–ה׳ בלבד).
@@ -337,6 +343,25 @@ export default function NewRequest() {
               </span>
             </button>
 
+            {/* DEV-ONLY: "שיחה עם הבוט" — sits beside the human-inquiry entry above.
+                Rendered only when import.meta.env.DEV && VITE_N8N_CHAT_URL is set, so it
+                is stripped from production builds and no-ops when unconfigured. */}
+            {chatEnabled && (
+              <button
+                onClick={() => setChatOpen(true)}
+                className="group w-full flex items-center gap-3 rounded-xl ring-1 ring-teal-200 bg-teal-50/60 px-3 py-2.5 text-right cursor-pointer shadow-sm transition hover:bg-teal-50 hover:ring-teal-300 hover:shadow-md"
+              >
+                <span className="grid place-items-center h-9 w-9 rounded-lg bg-teal-600 text-white shrink-0"><Bot size={18} /></span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-800">שיחה עם הבוט</p>
+                  <p className="text-xs text-slate-500">קבלו מענה מיידי מעוזר/ת ה-AI של הקליניקה</p>
+                </div>
+                <span className="grid place-items-center h-7 w-7 rounded-full bg-teal-100 text-teal-600 shrink-0 transition-transform group-hover:-translate-x-0.5">
+                  <ArrowLeft size={16} />
+                </span>
+              </button>
+            )}
+
             {/* Provider */}
             <div>
               <label className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-2"><User size={14} className="text-teal-600" /> בחירת מטפל/ת <RequiredMark /></label>
@@ -513,6 +538,11 @@ export default function NewRequest() {
           onClose={() => setInquiryOpen(false)}
           onSubmit={sendInquiry}
         />
+      )}
+
+      {/* DEV-ONLY bot chat modal (see chatEnabled above). */}
+      {chatEnabled && chatOpen && (
+        <BotChatDialog onClose={() => setChatOpen(false)} />
       )}
     </div>
   )

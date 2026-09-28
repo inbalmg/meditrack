@@ -20,5 +20,5 @@ on conflict (id) do nothing;
 insert into public.patients (id, clinic_id, name, phone, birth_year, gender, notify_opt_in, profile_id)
 values ('aaaaaaaa-0000-4000-8000-000000000002',
         'aaaaaaaa-0000-4000-8000-000000000001',
-        'בדיקת סוכן (QA)', '0500000000', 1990, 'other', false, null)
+        'דניאל אבני', '054-7712389', 1990, 'other', false, null)
 on conflict (id) do nothing;

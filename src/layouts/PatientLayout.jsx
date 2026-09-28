@@ -4,7 +4,6 @@ import { useSession } from '../session.jsx'
 import { useData } from '../data/store.jsx'
 import { clsx } from '../components/clsx.js'
 import { BrandLockup } from '../components/Logo.jsx'
-
 // Responsive patient portal.
 //   • Mobile (<md): full-screen — dark header on top, bottom tab bar.
 //   • Desktop (md+): a proper desktop layout — top navigation bar (brand +

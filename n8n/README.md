@@ -46,6 +46,36 @@
   `aaaaaaaa-0000-4000-8000-000000000002`. כך פניות ה-QA נכתבות בדייר נפרד ו-RLS מונע מהן להופיע
   באפליקציה ה-Deployed (אפס זכר לסוכן). ניקוי בסוף — ראו הערות בראש קובץ ה-seed.
 
+## חיבור לפורטל המטופל (DEV בלבד) — כפתור "שיחה עם הבוט"
+
+הפורטל של MediTrack (`src/pages/patient/NewRequest.jsx`) מציג כפתור **"שיחה עם הבוט"** לצד
+"צריכים עזרה או מידע נוסף?" — **רק ב-DEV** (`import.meta.env.DEV` + `VITE_N8N_CHAT_URL`). הוא פותח
+מודל צ'אט מותאם ששולח `POST` ל-**Chat Trigger** של הסוכן.
+
+כדי שה-fetch מהדפדפן יעבור, צומת ה-Chat Trigger מוגדר בקובץ:
+- `public: true` — חושף את ה-webhook לצריכה מוטמעת (embedded).
+- `options.allowedOrigins: "*"` — CORS מהדפדפן ב-DEV. **לפרודקשן: להגביל ל-origin הספציפי, לא `*`.**
+- `options.responseMode: "lastNode"` — מחזיר את `output` של הסוכן לתגובת ה-HTTP.
+
+**הפעלה:**
+1. ייבא/פרסם מחדש את `meditrack-frontdesk-agent.json` ב-n8n אחרי העדכון (Publish).
+2. העתק/י את ה-**Chat (Production) URL** של הצומת — בדרך כלל
+   `https://<tunnel>/webhook/meditrack-frontdesk-chat/chat`.
+3. הכנס/י אותו ל-`VITE_N8N_CHAT_URL` בקובץ `.env` המקומי של האפליקציה, והרץ/י `npm run dev`.
+
+> זהו endpoint הדגמה ל-DEV בלבד. הוא **אינו** נכלל ב-build של production (Vite tree-shake מסיר את
+> `import.meta.env.DEV`), ואינו נוגע במנגנון "פנייה לצוות" הקיים באפליקציה.
+
+### GOTCHAS (n8n 2.36.7 — נדרשו לחיבור הפורטל)
+1. **CORS:** ה-Chat Trigger צריך `public:true` + `allowedOrigins:"*"` + `responseMode:"lastNode"` (אחרת OPTIONS→500).
+2. **סוג צומת הכלים:** יש להשתמש ב-`n8n-nodes-base.httpRequestTool` **4.5** (הפורמט בקובץ). צמתי `toolHttpRequest` 1.1
+   ישנים נשברים ב-n8n 2.x — מזריקים property בשם ריק שגורם ל-`key cannot be empty` (Gemini) או
+   `tool input did not match expected schema ✖ Required` (מודלים אחרים).
+3. **מפתח:** אם `N8N_BLOCK_ENV_ACCESS_IN_NODE` פעיל, `{{ $env.* }}` זורק `access to env vars denied`.
+   הפתרון: **Credential מסוג Custom Auth** (`{"headers":{"apikey":"<KEY>","Authorization":"Bearer <KEY>"}}`)
+   מחובר ל-5 הכלים — **ולמחוק את כותרות ה-`$env` הידניות** מכל כלי. הקובץ בריפו משתמש ב-`$env` (מאובטח); בסביבה
+   שחוסמת env יש להחליף ל-Custom Auth credential (או להטביע את המפתח ב-UI בלבד, לא בקובץ).
+
 ## מבנה הסוכן
 ```
 Chat Trigger → AI Agent (Gemini, System Prompt מלא)

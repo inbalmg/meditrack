@@ -18,7 +18,7 @@
     {
       "parameters": {
         "chatId": "6847779043",
-        "text": "=🔴 *פנייה דורשת טיפול אנושי — MediTrack*\n\n👤 מטופל/ת: {{ $json.body.patientName }}\n📋 נושא: {{ $json.body.subject }}\n⚠️ סיבה: {{ $json.body.escalationReason }}\n🆔 מזהה פנייה: {{ $json.body.requestId }}\n\nנא לטפל בתור המזכירה.",
+        "text": "=🔴 *פנייה דורשת טיפול אנושי — MediTrack*\n\n👤 מטופל/ת: {{ $json.body.patientName }}\n📞 טלפון: {{ $json.body.patientPhone }}\n📋 נושא: {{ $json.body.subject }}\n⚠️ סיבה: {{ $json.body.escalationReason }}\n🆔 מזהה פנייה: {{ $json.body.requestId }}\n\nנא ליצור קשר עם המטופל/ת או לטפל בתור המזכירה.",
         "additionalFields": {
           "parse_mode": "Markdown"
         }

@@ -7,3 +7,5 @@ dist-ssr
 .env
 # local env secrets (service role key for scripts/reset-patient.mjs) — never commit
 .env.local
+# local working notes between Claude sessions — internal IDs, not part of the repo
+CHAT_HANDOFF.md

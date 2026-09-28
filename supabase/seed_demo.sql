@@ -31,6 +31,31 @@
 begin;
 
 -- ----------------------------------------------------------------------------
+-- 0a) עזר: מיפוי offset ל-יום-עבודה (א׳–ה׳). המרפאה עובדת ראשון–חמישי בלבד
+--     (clinics.settings.workDays = [0,1,2,3,4]), ולכן כל תור חייב לנחות על יום-עבודה.
+--     demo_nth_workday(anchor, n) מחזיר את התאריך שהוא ה-n-י יום-עבודה מהעוגן (מדלג על
+--     שישי/שבת): n<0 = יום-עבודה קודם, n>0 = יום-עבודה הבא, n=0 = העוגן מוצמד אחורה
+--     ליום-עבודה. מיפוי לפי ימי-עבודה (ולא הצמדת תאריך קלנדרי) שומר על מונוטוניות —
+--     כל offset שונה → יום שונה, כך שאי-החפיפה הפר-יומית הכתובה למטה נשמרת ואין
+--     התנגשות ב-appointments_no_double_booking.
+-- ----------------------------------------------------------------------------
+create or replace function app.demo_nth_workday(
+  anchor date, n int, work int[] default array[0,1,2,3,4]
+) returns date language plpgsql immutable as $$
+declare d date := anchor; step int := case when n >= 0 then 1 else -1 end; rem int := abs(n);
+begin
+  if n = 0 then
+    while not (extract(dow from d)::int = any(work)) loop d := d - 1; end loop;  -- snap אחורה ליום-עבודה
+    return d;
+  end if;
+  while rem > 0 loop
+    d := d + step;
+    if extract(dow from d)::int = any(work) then rem := rem - 1; end if;
+  end loop;
+  return d;
+end $$;
+
+-- ----------------------------------------------------------------------------
 -- 0) קבועים — UUID-ים קבועים לישויות הליבה (דטרמיניזם) + עוגני זמן
 -- ----------------------------------------------------------------------------
 -- קליניקת ההדגמה (קיימת; ה-JWT של משתמשי הדמו נושא את ה-clinic_id הזה):
@@ -185,7 +210,8 @@ insert into public.appointments
   (clinic_id, patient_id, therapist_id, treatment_id, start, duration_min, visit_type, status, source, reason, clinical_note)
 select
   '3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0', a.pid::uuid, a.thid::uuid, a.trid::uuid,
-  ((k.d0 + a.d) + make_time(a.h, a.mi, 0)) at time zone 'Asia/Jerusalem',
+  -- ה-offset (a.d) מתפרש כ**ימי-עבודה** דרך demo_nth_workday → לעולם לא שישי/שבת.
+  (app.demo_nth_workday(k.d0, a.d) + make_time(a.h, a.mi, 0)) at time zone 'Asia/Jerusalem',
   a.dur, a.vt, a.status, 'הזמנה עצמית', a.reason, a.note
 from a cross join k;
 
@@ -258,6 +284,9 @@ ins_appts as (
     end,
     'הזמנה עצמית', t.reason, t.note
   from t cross join base cross join shift
+  -- סצנת-היום נוצרת רק כשהיום עצמו הוא יום-עבודה. בהרצת שישי/שבת → 0 שורות, ולוח
+  -- היום בדשבורד מציג "אין תורים היום" (מצב מרפאה-סגורה תקין).
+  where extract(dow from (now() at time zone 'Asia/Jerusalem'))::int = any (array[0,1,2,3,4])
   returning 1
 )
 -- 8c) חסימת יומן קבועה — "ישיבת צוות" כלל-קליניקתית (therapist_id NULL). ממוקמת בפער [+15,+45]
@@ -269,7 +298,9 @@ select
   '3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0', null,
   base.b0 + make_interval(secs => (15 + shift.mins) * 60),
   30, 'ישיבת צוות'
-from base cross join shift;
+from base cross join shift
+-- כמו סצנת-היום: החסימה נוצרת רק ביום-עבודה (בשישי/שבת אין לוח יום כלל).
+where extract(dow from (now() at time zone 'Asia/Jerusalem'))::int = any (array[0,1,2,3,4]);
 
 alter table public.appointments enable trigger trigger_send_appointment;
 
@@ -311,8 +342,9 @@ values
   ('3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0', 'הכנת דף תרגילים לבית — אבי מזרחי', 'e2000000-0000-4000-8000-000000000002', '921306c6-cc04-41d5-a160-01a782871afd',
    now() - interval '5 hours', null, now() - interval '4 hours', 'בטיפול', 'ידני', 'דחוף', 'להכין ולשלוח דף תרגילים ביתי לפני הטיפול הבא.', null),
   -- פולו-אפ אי-הגעה (אוטומציה, פתוח) — source_at = תור אתמול 12:00 שלא הגיע → שורת מקור "אי-הגעה לתור 12:00"
+  -- source_at חייב להתאים לתור ה'לא הגיע' ב-offset -1 (נועם, 12:00) — שניהם דרך demo_nth_workday(-1).
   ('3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0', 'פולו-אפ אי-הגעה — נועם פרידמן', 'e4000000-0000-4000-8000-000000000004', '921306c6-cc04-41d5-a160-01a782871afd',
-   (((now() at time zone 'Asia/Jerusalem')::date - 1) + make_time(12, 0, 0)) at time zone 'Asia/Jerusalem', (((now() at time zone 'Asia/Jerusalem')::date - 1) + make_time(12, 0, 0)) at time zone 'Asia/Jerusalem', now() + interval '2 hours', 'פתוח', 'אוטומציה', null, 'לא הגיע לטיפול המשך אתמול. ליצור קשר ולתאם מחדש.', null),
+   (app.demo_nth_workday((now() at time zone 'Asia/Jerusalem')::date, -1) + make_time(12, 0, 0)) at time zone 'Asia/Jerusalem', (app.demo_nth_workday((now() at time zone 'Asia/Jerusalem')::date, -1) + make_time(12, 0, 0)) at time zone 'Asia/Jerusalem', now() + interval '2 hours', 'פתוח', 'אוטומציה', null, 'לא הגיע לטיפול המשך האחרון. ליצור קשר ולתאם מחדש.', null),
   -- בטיפול (ידני)
   ('3e78d4b9-1dcc-4f25-a9b2-f472f5f7aab0', 'בירור זמינות לעיסוי — שירה גולן', 'e3000000-0000-4000-8000-000000000003', 'a3000000-0000-4000-8000-000000000003',
    now() - interval '2 hours', null, now() + interval '3 hours', 'בטיפול', 'ידני', null, 'לחזור עם מועדים אפשריים לעיסוי רפואי.', null),
